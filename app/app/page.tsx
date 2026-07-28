@@ -13,6 +13,7 @@ import { getProjectFinancials } from "@/lib/finance";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { accessibleProjectIds, requireSession } from "@/lib/session";
+import { getEnabledModules } from "@/lib/subscription";
 import { cn, money, shortDate } from "@/lib/utils";
 
 const activeInvoiceStatuses: InvoiceStatus[] = ["ISSUED", "PARTIALLY_PAID", "OVERDUE"];
@@ -24,19 +25,22 @@ export default async function DashboardPage({
 }) {
   const session = await requireSession("dashboard:view");
   const query = await searchParams;
+  const enabledModules = await getEnabledModules(session.organizationId);
+  const projectAccess = enabledModules.includes("projects");
+  const financialAccess = can(session.role, "finance:view") && enabledModules.includes("finance");
   const projectIds = await accessibleProjectIds(session);
   const projectFilter = projectIds !== undefined ? { id: { in: projectIds } } : {};
   const boundProjectFilter = projectIds !== undefined ? { projectId: { in: projectIds } } : {};
   const now = new Date();
   const [activeProjects, contracts, overdueInvoices, dueBills, financials] = await Promise.all([
-    prisma.project.count({
+    projectAccess ? prisma.project.count({
       where: { organizationId: session.organizationId, status: ProjectStatus.ACTIVE, ...projectFilter }
-    }),
-    prisma.projectContract.aggregate({
+    }) : 0,
+    financialAccess ? prisma.projectContract.aggregate({
       where: { organizationId: session.organizationId, ...boundProjectFilter },
       _sum: { contractValue: true }
-    }),
-    prisma.clientInvoice.findMany({
+    }) : { _sum: { contractValue: null } },
+    financialAccess ? prisma.clientInvoice.findMany({
       where: {
         organizationId: session.organizationId,
         ...boundProjectFilter,
@@ -46,8 +50,8 @@ export default async function DashboardPage({
       include: { project: { select: { name: true } } },
       orderBy: { dueDate: "asc" },
       take: 5
-    }),
-    prisma.vendorBill.findMany({
+    }) : [],
+    financialAccess ? prisma.vendorBill.findMany({
       where: {
         organizationId: session.organizationId,
         ...boundProjectFilter,
@@ -60,8 +64,8 @@ export default async function DashboardPage({
       },
       orderBy: { dueDate: "asc" },
       take: 5
-    }),
-    getProjectFinancials(session.organizationId, projectIds)
+    }) : [],
+    projectAccess && financialAccess ? getProjectFinancials(session.organizationId, projectIds) : []
   ]);
 
   const totalOutstanding = overdueInvoices.reduce(
@@ -72,9 +76,8 @@ export default async function DashboardPage({
     (sum, bill) => sum + Number(bill.amount) - Number(bill.paidAmount),
     0
   );
-  const financialAccess = can(session.role, "finance:view");
   const dashboardMetrics = [
-    { label: "Active projects", value: activeProjects.toString(), icon: Building2, meta: `${financials.length} total projects` },
+    ...(projectAccess ? [{ label: "Active projects", value: activeProjects.toString(), icon: Building2, meta: `${financials.length} costed projects` }] : []),
     ...(financialAccess ? [
       { label: "Total contract value", value: money(contracts._sum.contractValue ?? 0, session.currency), icon: IndianRupee, meta: "Across signed contracts" },
       { label: "Overdue receivables", value: money(totalOutstanding, session.currency), icon: CircleAlert, meta: `${overdueInvoices.length} overdue invoices` },
@@ -89,7 +92,7 @@ export default async function DashboardPage({
         title={`Good to see you, ${session.user.name?.split(" ")[0] ?? "there"}`}
         description="Live operational and financial signals from your construction workspace."
         action={
-          can(session.role, "projects:manage") ? (
+          projectAccess && can(session.role, "projects:manage") ? (
             <Link href="/app/projects/new" className={cn(buttonVariants(), "w-fit")}>
               New project
             </Link>
@@ -209,11 +212,11 @@ export default async function DashboardPage({
         </Card>
       </section> : null}
 
-      <div className="flex justify-end">
+      {projectAccess ? <div className="flex justify-end">
         <Link href="/app/projects" className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           Open project portfolio <ArrowRight className="h-4 w-4" />
         </Link>
-      </div>
+      </div> : null}
     </div>
   );
 }

@@ -14,6 +14,19 @@ All server mutations follow the same boundary:
 
 Site Engineer project reads additionally require a `ProjectMember` match.
 
+## Platform control boundary
+
+Bizavo SaaS administration is intentionally separate from tenant roles and accounting:
+
+- `PlatformAdministrator` grants Super Admin, Billing or Support access to `/control`.
+- `SubscriptionPlan` defines price, limits and base module entitlements.
+- `OrganizationSubscription`, billing profile, subscription invoices/payments and requests form the SaaS commercial ledger.
+- `OrganizationModuleOverride` stores contracted exceptions without changing a reusable plan.
+- `Organization.status` blocks tenant access independently of subscription status.
+- `PlatformAuditLog` records control-plane and customer billing actions.
+
+`PLATFORM_ADMIN_EMAILS` is a bootstrap allowlist only. Normal global access is stored in `PlatformAdministrator`; the public demo user is never promoted by the seed. Subscription receipts do not create tenant accounting journals because they belong to the Bizavo software business, not the construction company.
+
 ## Connected transaction chains
 
 ### Procurement and inventory

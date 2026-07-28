@@ -21,11 +21,32 @@ export async function projectScope(
   permission: Permission = "projects:view"
 ): Promise<{ session: Awaited<ReturnType<typeof requireSession>>; where: Prisma.ProjectWhereInput }> {
   const session = await requireSession(permission);
-  const where: Prisma.ProjectWhereInput = { organizationId: session.organizationId };
-  if (projectRestrictedRoles.includes(session.role)) {
-    where.members = { some: { membershipId: session.membershipId } };
-  }
+  const where = projectWhereForSession(session);
   return { session, where };
+}
+
+export type AppSession = Awaited<ReturnType<typeof requireSession>>;
+
+export function projectWhereForSession(session: AppSession): Prisma.ProjectWhereInput {
+  return {
+    organizationId: session.organizationId,
+    ...(projectRestrictedRoles.includes(session.role)
+      ? { members: { some: { membershipId: session.membershipId } } }
+      : {})
+  };
+}
+
+/**
+ * Undefined means organization-wide access. An empty array means the member has
+ * no assigned projects and must not see any project-bound records.
+ */
+export async function accessibleProjectIds(session: AppSession): Promise<string[] | undefined> {
+  if (!projectRestrictedRoles.includes(session.role)) return undefined;
+  const projects = await prisma.project.findMany({
+    where: projectWhereForSession(session),
+    select: { id: true }
+  });
+  return projects.map((project) => project.id);
 }
 
 export async function requireProject(projectId: string, permission: Permission = "projects:view") {

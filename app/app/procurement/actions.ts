@@ -7,7 +7,7 @@ import { z } from "zod";
 import { accountIds, postJournal } from "@/lib/accounting";
 import { dateValue, fail, numberValue, ok, optionalText, parseOrFail, text } from "@/lib/action-utils";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireProject, requireSession } from "@/lib/session";
 
 const vendorSchema = z.object({
   name: z.string().min(2, "Vendor name is required."),
@@ -54,14 +54,13 @@ export async function createVendor(formData: FormData) {
 }
 
 export async function createPurchaseOrder(formData: FormData) {
-  const session = await requireSession("procurement:request");
   const projectId = text(formData, "projectId");
+  const { session } = await requireProject(projectId, "procurement:request");
   const vendorId = text(formData, "vendorId");
-  const [project, vendor] = await Promise.all([
-    prisma.project.findFirst({ where: { id: projectId, organizationId: session.organizationId } }),
-    prisma.vendor.findFirst({ where: { id: vendorId, organizationId: session.organizationId, active: true } })
-  ]);
-  if (!project || !vendor) fail("/app/procurement/new", "Select a valid project and vendor.");
+  const vendor = await prisma.vendor.findFirst({
+    where: { id: vendorId, organizationId: session.organizationId, active: true }
+  });
+  if (!vendor) fail("/app/procurement/new", "Select a valid project and vendor.");
 
   const itemIds = formData.getAll("itemId").map(String);
   const descriptions = formData.getAll("description").map(String);
@@ -79,7 +78,16 @@ export async function createPurchaseOrder(formData: FormData) {
       const quantity = quantities[index] ?? 0;
       const unitPrice = unitPrices[index] ?? 0;
       const taxPercent = taxes[index] ?? 0;
-      if (!item || quantity <= 0 || unitPrice < 0) return null;
+      if (
+        !item ||
+        !Number.isFinite(quantity) ||
+        !Number.isFinite(unitPrice) ||
+        !Number.isFinite(taxPercent) ||
+        quantity <= 0 ||
+        unitPrice < 0 ||
+        taxPercent < 0 ||
+        taxPercent > 100
+      ) return null;
       return {
         itemId,
         description: descriptions[index]?.trim() || item.name,
@@ -139,26 +147,35 @@ export async function decidePurchaseOrder(formData: FormData) {
 
 export async function receivePurchaseOrder(formData: FormData) {
   const session = await requireSession("inventory:manage");
+  const accessibleIds = await accessibleProjectIds(session);
   const purchaseOrderId = text(formData, "purchaseOrderId");
   const locationId = text(formData, "locationId");
   const po = await prisma.purchaseOrder.findFirst({
     where: {
       id: purchaseOrderId,
       organizationId: session.organizationId,
+      ...(accessibleIds !== undefined ? { projectId: { in: accessibleIds } } : {}),
       status: { in: ["APPROVED", "PARTIALLY_RECEIVED"] }
     },
     include: { items: { include: { item: true } }, vendor: true }
   });
   const location = await prisma.inventoryLocation.findFirst({
-    where: { id: locationId, organizationId: session.organizationId, active: true }
+    where: {
+      id: locationId,
+      organizationId: session.organizationId,
+      active: true,
+      ...(accessibleIds !== undefined ? { projectId: { in: accessibleIds } } : {})
+    }
   });
-  if (!po || !location) fail(`/app/procurement/${purchaseOrderId}`, "Select an approved PO and valid stock location.");
+  if (!po || !location || (accessibleIds !== undefined && location.projectId !== po.projectId)) {
+    fail(`/app/procurement/${purchaseOrderId}`, "Select an approved PO and an accessible store for that project.");
+  }
   const receiptLines = po.items.map((line) => {
     const quantity = Number(formData.get(`quantity-${line.id}`) ?? 0);
     const remaining = Number(line.quantity) - Number(line.receivedQuantity);
     return {
       line,
-      quantity: Math.min(quantity, remaining)
+      quantity: Number.isFinite(quantity) ? Math.min(quantity, remaining) : 0
     };
   }).filter(({ line, quantity }) => line.item && quantity > 0);
   if (!receiptLines.length) fail(`/app/procurement/${po.id}`, "Enter at least one receipt quantity.");

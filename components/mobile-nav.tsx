@@ -5,19 +5,20 @@ import { usePathname } from "next/navigation";
 import { Boxes, Building2, CircleDollarSign, LayoutDashboard, ShoppingCart } from "lucide-react";
 import { OrgRole } from "@prisma/client";
 import { can, type Permission } from "@/lib/permissions";
+import { type ModuleKey } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/app", label: "Home", icon: LayoutDashboard, permission: "dashboard:view" },
-  { href: "/app/projects", label: "Projects", icon: Building2, permission: "projects:view" },
-  { href: "/app/procurement", label: "POs", icon: ShoppingCart, permission: "procurement:view" },
-  { href: "/app/inventory", label: "Stock", icon: Boxes, permission: "inventory:view" },
-  { href: "/app/finance", label: "Finance", icon: CircleDollarSign, permission: "finance:view" }
-] satisfies { href: string; label: string; icon: typeof LayoutDashboard; permission: Permission }[];
+  { href: "/app/projects", label: "Projects", icon: Building2, permission: "projects:view", module: "projects" },
+  { href: "/app/procurement", label: "POs", icon: ShoppingCart, permission: "procurement:view", module: "procurement" },
+  { href: "/app/inventory", label: "Stock", icon: Boxes, permission: "inventory:view", module: "inventory" },
+  { href: "/app/finance", label: "Finance", icon: CircleDollarSign, permission: "finance:view", module: "finance" }
+] satisfies { href: string; label: string; icon: typeof LayoutDashboard; permission: Permission; module?: ModuleKey }[];
 
-export function MobileNav({ role }: { role: OrgRole }) {
+export function MobileNav({ role, enabledModules }: { role: OrgRole; enabledModules: ModuleKey[] }) {
   const pathname = usePathname();
-  const visibleItems = items.filter((item) => can(role, item.permission));
+  const visibleItems = items.filter((item) => can(role, item.permission) && (!item.module || enabledModules.includes(item.module)));
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-50 grid border-t bg-white px-1 pb-[env(safe-area-inset-bottom)] lg:hidden"

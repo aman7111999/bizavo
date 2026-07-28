@@ -8,6 +8,13 @@ const d = (value: string) => new Date(`${value}T00:00:00.000Z`);
 async function main() {
   const existing = await prisma.organization.findUnique({ where: { slug: "apex-buildcon" } });
   if (existing) {
+    const engineer = await prisma.user.findUnique({ where: { email: "engineer@demo.bizavo.in" } });
+    if (engineer) {
+      await prisma.employee.updateMany({
+        where: { organizationId: existing.id, employeeCode: "EMP-001", userId: null },
+        data: { userId: engineer.id, email: engineer.email }
+      });
+    }
     console.log("Demo organization already exists; seed skipped.");
     return;
   }
@@ -228,7 +235,7 @@ async function main() {
     prisma.inventoryItem.create({ data: { organizationId: organization.id, categoryId: electricalCategory.id, preferredVendorId: electricalVendor.id, name: "FRLS Copper Cable 4 sqmm", sku: "CBL-FRLS-4", unit: "Rmt", purchasePrice: 72, averageCost: 70, reorderLevel: 2000 } }),
     prisma.inventoryItem.create({ data: { organizationId: organization.id, categoryId: finishingCategory.id, name: "Vitrified Tile 600 × 1200", sku: "TILE-6012", unit: "Sqft", purchasePrice: 82, averageCost: 82, reorderLevel: 1500 } })
   ]);
-  const [central, skylineStore, orionStore, riversideStore] = await Promise.all([
+  const [central, skylineStore, orionStore] = await Promise.all([
     prisma.inventoryLocation.create({ data: { organizationId: organization.id, name: "Central Warehouse", code: "WH-CENTRAL", type: "CENTRAL_WAREHOUSE", address: "Bhiwandi, Maharashtra" } }),
     prisma.inventoryLocation.create({ data: { organizationId: organization.id, projectId: skyline.id, name: "Skyline Site Store", code: "SKY-STORE", type: "SITE_STORE", address: skyline.location } }),
     prisma.inventoryLocation.create({ data: { organizationId: organization.id, projectId: orion.id, name: "Orion Site Store", code: "OTP-STORE", type: "SITE_STORE", address: orion.location } }),
@@ -332,6 +339,7 @@ async function main() {
       data: {
         organizationId: organization.id, employeeCode, name, designation, department, joiningDate: d("2025-10-01"),
         monthlyBasic, monthlyAllowances, defaultDeductions, annualLeaveBalance: 15,
+        ...(employeeCode === "EMP-001" ? { userId: engineer.id, email: engineer.email } : {}),
         projectAssignments: { create: { projectId, startDate: d("2026-01-01"), allocation: 100 } }
       }
     });

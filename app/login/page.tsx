@@ -11,10 +11,11 @@ export const metadata = { title: "Sign in" };
 export default async function LoginPage({
   searchParams
 }: {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }) {
   const session = await auth();
   if (session) redirect("/app");
+  const query = await searchParams;
 
   async function login(formData: FormData) {
     "use server";
@@ -74,9 +75,9 @@ export default async function LoginPage({
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Welcome back</p>
           <h2 className="mt-2 text-3xl font-bold tracking-tight">Sign in to your workspace</h2>
           <p className="mt-2 text-sm text-muted-foreground">Use the demo account below or your organization credentials.</p>
-          {searchParams.error ? (
+          {query.error ? (
             <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {searchParams.error}
+              {query.error}
             </div>
           ) : null}
           <form action={login} className="mt-7 grid gap-5">

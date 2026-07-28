@@ -10,14 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 
 export const metadata = { title: "New purchase order" };
 
-export default async function NewPurchaseOrderPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function NewPurchaseOrderPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const session = await requireSession("procurement:request");
+  const query = await searchParams;
+  const projectIds = await accessibleProjectIds(session);
   const [projects, vendors, items] = await Promise.all([
-    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] } }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] }, ...(projectIds !== undefined ? { id: { in: projectIds } } : {}) }, orderBy: { name: "asc" } }),
     prisma.vendor.findMany({ where: { organizationId: session.organizationId, active: true }, orderBy: { name: "asc" } }),
     prisma.inventoryItem.findMany({ where: { organizationId: session.organizationId, active: true }, orderBy: { name: "asc" } })
   ]);
@@ -25,7 +27,7 @@ export default async function NewPurchaseOrderPage({ searchParams }: { searchPar
   return (
     <div className="mx-auto max-w-5xl space-y-7">
       <PageHeader eyebrow="Procurement request" title="New purchase order" description="The PO will be submitted to Procurement, Admin or Owner for approval." action={<Link href="/app/procurement" className={buttonVariants({ variant: "outline" })}><ArrowLeft className="h-4 w-4" />Back</Link>} />
-      <AlertMessage error={searchParams.error} />
+      <AlertMessage error={query.error} />
       {!projects.length || !vendors.length || !items.length ? (
         <Card><CardContent className="p-6 text-sm">You need at least one active project, vendor and inventory item before raising a PO. Add vendors and items from Procurement and Inventory.</CardContent></Card>
       ) : (

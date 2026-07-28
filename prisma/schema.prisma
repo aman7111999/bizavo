@@ -785,6 +785,9 @@ model PayrollRun {
   totalNet       Decimal       @default(0) @db.Decimal(16, 2)
   processedAt    DateTime?
   processedById  String?
+  paidAt         DateTime?
+  paymentMethod  String?
+  paymentReference String?
   organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   payslips       Payslip[]
   createdAt      DateTime      @default(now())

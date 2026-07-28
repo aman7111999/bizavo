@@ -7,6 +7,7 @@ import { z } from "zod";
 import { dateValue, fail, numberValue, ok, optionalText, parseOrFail, text } from "@/lib/action-utils";
 import { prisma } from "@/lib/prisma";
 import { requireProject, requireSession } from "@/lib/session";
+import { getOrganizationPlanLimits } from "@/lib/subscription";
 import { slugify } from "@/lib/utils";
 
 const projectSchema = z.object({
@@ -37,11 +38,18 @@ export async function createProject(formData: FormData) {
     "/app/projects/new"
   );
   if (payload.endDate && payload.endDate < payload.startDate) fail("/app/projects/new", "End date cannot be before start date.");
-  const duplicate = await prisma.project.findFirst({
-    where: { organizationId: session.organizationId, code: payload.code },
-    select: { id: true }
-  });
+  const [duplicate, limits, projectCount] = await Promise.all([
+    prisma.project.findFirst({
+      where: { organizationId: session.organizationId, code: payload.code },
+      select: { id: true }
+    }),
+    getOrganizationPlanLimits(session.organizationId),
+    prisma.project.count({ where: { organizationId: session.organizationId } })
+  ]);
   if (duplicate) fail("/app/projects/new", "That project code is already in use.");
+  if (limits && projectCount >= limits.maxProjects) {
+    fail("/app/projects/new", `Your plan allows ${limits.maxProjects} projects. Upgrade before creating another project.`);
+  }
   const project = await prisma.project.create({
     data: {
       organizationId: session.organizationId,
@@ -236,6 +244,16 @@ export async function uploadProjectDocument(formData: FormData) {
   if (!allowedExtensions.has(extension)) {
     fail(`/app/projects/${projectId}`, "Use PDF, image, Word, Excel, DWG or DXF project files.");
   }
+  const [limits, documentUsage] = await Promise.all([
+    getOrganizationPlanLimits(session.organizationId),
+    prisma.projectDocument.aggregate({
+      where: { organizationId: session.organizationId },
+      _sum: { sizeBytes: true }
+    })
+  ]);
+  if (limits && (documentUsage._sum.sizeBytes ?? 0) + file.size > limits.maxStorageMb * 1024 * 1024) {
+    fail(`/app/projects/${projectId}`, `This upload exceeds your ${limits.maxStorageMb} MB document storage limit.`);
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? "project-documents";
@@ -248,18 +266,23 @@ export async function uploadProjectDocument(formData: FormData) {
     upsert: false
   });
   if (error) fail(`/app/projects/${projectId}`, `Upload failed: ${error.message}`);
-  await prisma.projectDocument.create({
-    data: {
-      organizationId: session.organizationId,
-      projectId,
-      name: text(formData, "name") || file.name,
-      category: text(formData, "category") || "Other",
-      storagePath,
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-      uploadedById: session.user.id
-    }
-  });
+  try {
+    await prisma.projectDocument.create({
+      data: {
+        organizationId: session.organizationId,
+        projectId,
+        name: text(formData, "name") || file.name,
+        category: text(formData, "category") || "Other",
+        storagePath,
+        mimeType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+        uploadedById: session.user.id
+      }
+    });
+  } catch (databaseError) {
+    await client.storage.from(bucket).remove([storagePath]);
+    throw databaseError;
+  }
   revalidatePath(`/app/projects/${projectId}`);
   ok(`/app/projects/${projectId}`, "Document uploaded.");
 }

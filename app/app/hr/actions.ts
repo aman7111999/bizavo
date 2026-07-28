@@ -5,6 +5,7 @@ import { AttendanceStatus, LeaveStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { accountIds, postJournal } from "@/lib/accounting";
 import { dateValue, fail, numberValue, ok, optionalText, text } from "@/lib/action-utils";
+import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
@@ -13,19 +14,40 @@ export async function createEmployee(formData: FormData) {
   if (!text(formData, "name") || !text(formData, "employeeCode") || !text(formData, "designation") || !text(formData, "department")) {
     fail("/app/hr?view=directory", "Name, employee code, designation and department are required.");
   }
+  const monthlyBasic = Math.max(0, numberValue(formData, "monthlyBasic"));
+  const monthlyAllowances = Math.max(0, numberValue(formData, "monthlyAllowances"));
+  const defaultDeductions = Math.max(0, numberValue(formData, "defaultDeductions"));
+  if (defaultDeductions > monthlyBasic + monthlyAllowances) {
+    fail("/app/hr?view=directory", "Default deductions cannot exceed monthly gross pay.");
+  }
+  const email = optionalText(formData, "email")?.toLowerCase();
+  const linkedMembership = email
+    ? await prisma.membership.findFirst({
+        where: { organizationId: session.organizationId, user: { email } },
+        select: { userId: true }
+      })
+    : null;
+  if (linkedMembership) {
+    const linkedEmployee = await prisma.employee.findUnique({
+      where: { userId: linkedMembership.userId },
+      select: { id: true }
+    });
+    if (linkedEmployee) fail("/app/hr?view=directory", "That member account is already linked to an employee.");
+  }
   const employee = await prisma.employee.create({
     data: {
       organizationId: session.organizationId,
       employeeCode: text(formData, "employeeCode").toUpperCase(),
       name: text(formData, "name"),
-      email: optionalText(formData, "email"),
+      email,
+      userId: linkedMembership?.userId,
       phone: optionalText(formData, "phone"),
       designation: text(formData, "designation"),
       department: text(formData, "department"),
       joiningDate: dateValue(formData, "joiningDate") ?? new Date(),
-      monthlyBasic: Math.max(0, numberValue(formData, "monthlyBasic")),
-      monthlyAllowances: Math.max(0, numberValue(formData, "monthlyAllowances")),
-      defaultDeductions: Math.max(0, numberValue(formData, "defaultDeductions")),
+      monthlyBasic,
+      monthlyAllowances,
+      defaultDeductions,
       annualLeaveBalance: Math.max(0, numberValue(formData, "annualLeaveBalance") || 18)
     }
   });
@@ -47,20 +69,28 @@ export async function recordEmployeeAttendance(formData: FormData) {
   const employeeId = text(formData, "employeeId");
   const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId: session.organizationId, active: true } });
   const date = dateValue(formData, "date");
-  if (!employee || !date) fail("/app/hr?view=attendance", "Employee and date are required.");
+  const projectId = optionalText(formData, "projectId");
+  const statusValue = text(formData, "status");
+  const validStatus = Object.values(AttendanceStatus).includes(statusValue as AttendanceStatus);
+  const project = projectId
+    ? await prisma.project.findFirst({ where: { id: projectId, organizationId: session.organizationId } })
+    : null;
+  if (!employee || !date || !validStatus || (projectId && !project)) {
+    fail("/app/hr?view=attendance", "Employee, date, status and project must be valid.");
+  }
   await prisma.employeeAttendance.upsert({
     where: { employeeId_date: { employeeId, date } },
     update: {
-      projectId: optionalText(formData, "projectId"),
-      status: text(formData, "status") as AttendanceStatus,
+      projectId,
+      status: statusValue as AttendanceStatus,
       notes: optionalText(formData, "notes")
     },
     create: {
       organizationId: session.organizationId,
       employeeId,
-      projectId: optionalText(formData, "projectId"),
+      projectId,
       date,
-      status: text(formData, "status") as AttendanceStatus,
+      status: statusValue as AttendanceStatus,
       notes: optionalText(formData, "notes")
     }
   });
@@ -105,7 +135,14 @@ export async function createLeaveRequest(formData: FormData) {
   const endDate = dateValue(formData, "endDate");
   const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId: session.organizationId, active: true } });
   if (!employee || !startDate || !endDate || endDate < startDate) fail("/app/hr?view=leave", "Choose a valid employee and leave date range.");
+  if (!can(session.role, "hr:manage") && employee.userId !== session.user.id) {
+    fail("/app/hr?view=leave", "You can submit leave only for your own linked employee profile.");
+  }
   const days = differenceInCalendarDays(endDate, startDate) + 1;
+  const leaveType = text(formData, "type") || "Annual leave";
+  if (leaveType === "Annual leave" && days > Number(employee.annualLeaveBalance)) {
+    fail("/app/hr?view=leave", "This request exceeds the available annual leave balance.");
+  }
   await prisma.leaveRequest.create({
     data: {
       organizationId: session.organizationId,
@@ -113,7 +150,7 @@ export async function createLeaveRequest(formData: FormData) {
       startDate,
       endDate,
       days,
-      type: text(formData, "type") || "Annual leave",
+      type: leaveType,
       reason: optionalText(formData, "reason")
     }
   });
@@ -126,15 +163,23 @@ export async function decideLeaveRequest(formData: FormData) {
   const leaveId = text(formData, "leaveId");
   const status = text(formData, "decision") === "approve" ? LeaveStatus.APPROVED : LeaveStatus.REJECTED;
   const leave = await prisma.leaveRequest.findFirst({
-    where: { id: leaveId, organizationId: session.organizationId, status: "PENDING" }
+    where: { id: leaveId, organizationId: session.organizationId, status: "PENDING" },
+    include: { employee: { select: { annualLeaveBalance: true } } }
   });
   if (!leave) fail("/app/hr?view=leave", "Leave request is no longer pending.");
+  if (
+    status === "APPROVED" &&
+    leave.type === "Annual leave" &&
+    Number(leave.employee.annualLeaveBalance) < Number(leave.days)
+  ) {
+    fail("/app/hr?view=leave", "The employee no longer has enough annual leave balance.");
+  }
   await prisma.$transaction(async (tx) => {
     await tx.leaveRequest.update({
       where: { id: leave.id },
       data: { status, decidedById: session.user.id, decidedAt: new Date() }
     });
-    if (status === "APPROVED") {
+    if (status === "APPROVED" && leave.type === "Annual leave") {
       await tx.employee.update({
         where: { id: leave.employeeId },
         data: { annualLeaveBalance: { decrement: leave.days } }
@@ -168,6 +213,9 @@ export async function processPayroll(formData: FormData) {
     }
   });
   if (!employees.length) fail("/app/hr?view=payroll", "There are no active employees to process.");
+  if (employees.some((employee) => Number(employee.defaultDeductions) > Number(employee.monthlyBasic) + Number(employee.monthlyAllowances))) {
+    fail("/app/hr?view=payroll", "Fix employee deductions that exceed gross pay before processing payroll.");
+  }
   await prisma.$transaction(async (tx) => {
     let totalGross = 0;
     let totalDeductions = 0;

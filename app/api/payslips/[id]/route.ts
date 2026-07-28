@@ -2,11 +2,23 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { auth } from "@/auth";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { organizationCanUseModule } from "@/lib/subscription";
 import { money } from "@/lib/utils";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.organizationId) return new Response("Unauthorized", { status: 401 });
+  const organization = await prisma.organization.findUnique({
+    where: { id: session.organizationId },
+    select: { status: true, industry: true }
+  });
+  if (
+    !organization ||
+    organization.status !== "ACTIVE" ||
+    !(await organizationCanUseModule(session.organizationId, "hr", organization.industry))
+  ) {
+    return new Response("Workspace or module unavailable", { status: 403 });
+  }
   const { id } = await params;
   const payslip = await prisma.payslip.findFirst({
     where: {

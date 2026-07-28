@@ -6,7 +6,7 @@ The product is intentionally built around connected transactions. A purchase ord
 
 ## Stack
 
-- Next.js 14 App Router and TypeScript
+- Next.js 15 App Router and TypeScript
 - PostgreSQL on Supabase
 - Prisma ORM and PostgreSQL row-level security
 - Auth.js credentials authentication
@@ -22,7 +22,7 @@ The product is intentionally built around connected transactions. A purchase ord
 - Owner, Admin, Project Manager, Site Engineer, Procurement, HR, Accountant and Viewer roles
 - Server-side permission checks on pages and mutations
 - Site Engineers see only assigned projects
-- Owner signup, organization creation, expiring role invite links and project assignment
+- Owner signup, organization creation, expiring/revocable role invite links, role changes and project assignment
 - Every tenant-owned table carries `organizationId`; Supabase-facing tables have RLS enabled
 
 ### Projects and contracts
@@ -63,6 +63,7 @@ The product is intentionally built around connected transactions. A purchase ord
 - Site labour headcount by category, present/absent and daily rate
 - Leave application, approval/rejection and balance updates
 - Monthly payroll runs with project cost allocation
+- Finance-controlled payroll payment posting with bank method/reference
 - Downloadable PDF payslips
 
 ### Finance
@@ -71,6 +72,7 @@ The product is intentionally built around connected transactions. A purchase ord
 - Double-entry journals generated from operational transactions
 - Milestone/client invoices and client payments
 - Vendor and subcontractor payables and payments
+- Client, vendor, subcontractor and payroll payment register
 - Direct project and organization expenses
 - Project-wise P&L
 - Organization P&L and balance sheet with a live balance check
@@ -87,6 +89,8 @@ The product is intentionally built around connected transactions. A purchase ord
 ## Phase 1 simplifications
 
 - Auth uses email/password. Invite links are copied manually; transactional email delivery is deferred.
+- One login currently belongs to one organization. Cross-workspace switching for consultants and group-company users is deferred.
+- Bizavo customer subscription billing is separate from each construction company’s accounting and is deferred until pricing and a payment gateway are selected.
 - Payroll covers earnings, deductions and payslips, but not PF, ESI, professional tax or statutory filing.
 - Finance is accrual-based double entry, but GST/TDS returns, bank feeds, reconciliation, credit notes and period closing are deferred.
 - Inventory supports weighted-average valuation. Serial/batch tracking, composite items, barcode scanning, cycle counts and demand forecasting are deferred.
@@ -104,6 +108,10 @@ Future construction modules are registered in `lib/modules.ts` with stable organ
 - Client progress portal
 
 The same `Organization.industry` boundary supports future hospital, gym, retail, professional services and manufacturing packs without changing tenant identity or the shared finance/people core.
+
+## Operating the product
+
+See [OPERATIONS.md](./OPERATIONS.md) for the owner/admin responsibility matrix, onboarding checklist, purchase-to-pay, milestone-to-cash and payroll payment workflows, daily/monthly controls, deployment procedure and the recommended SaaS billing rollout.
 
 ## Local setup
 
@@ -188,5 +196,7 @@ npm run build
 - Authenticated application requests never accept an organization identifier from forms; it comes from the signed session.
 - Mutations re-fetch business records with both `id` and `organizationId`.
 - Project-restricted roles receive a project-membership filter.
-- Supabase Storage files are private and opened through short-lived signed URLs after an organization check.
+- Project documents are private and opened through short-lived signed URLs after both organization and project-access checks.
+- Payslips are available only to HR managers or the employee account linked to that payslip.
+- Payment posting re-reads the current balance in a serializable transaction to prevent concurrent overpayment.
 - Database RLS protects tenant-owned tables from direct Supabase API access. Prisma uses the trusted server connection and repeats tenant authorization in the application layer.

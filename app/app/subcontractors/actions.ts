@@ -11,11 +11,17 @@ export async function createSubcontractor(formData: FormData) {
   if (!text(formData, "name") || !text(formData, "code") || !text(formData, "trade")) {
     fail("/app/subcontractors", "Name, code and trade are required.");
   }
+  const code = text(formData, "code").toUpperCase();
+  const duplicate = await prisma.subcontractor.findFirst({
+    where: { organizationId: session.organizationId, code },
+    select: { id: true }
+  });
+  if (duplicate) fail("/app/subcontractors", "That subcontractor code is already in use.");
   await prisma.subcontractor.create({
     data: {
       organizationId: session.organizationId,
       name: text(formData, "name"),
-      code: text(formData, "code").toUpperCase(),
+      code,
       trade: text(formData, "trade"),
       contactPerson: optionalText(formData, "contactPerson"),
       email: optionalText(formData, "email"),
@@ -35,24 +41,34 @@ export async function createWorkOrder(formData: FormData) {
   const projectId = text(formData, "projectId");
   const subcontractorId = text(formData, "subcontractorId");
   const value = numberValue(formData, "value");
+  const milestoneId = optionalText(formData, "milestoneId");
+  const retentionPercent = numberValue(formData, "retentionPercent");
   const [project, subcontractor] = await Promise.all([
     prisma.project.findFirst({ where: { id: projectId, organizationId: session.organizationId } }),
     prisma.subcontractor.findFirst({ where: { id: subcontractorId, organizationId: session.organizationId, active: true } })
   ]);
   if (!project || !subcontractor || !text(formData, "scope") || value <= 0) fail("/app/subcontractors", "Project, subcontractor, scope and value are required.");
+  if (retentionPercent < 0 || retentionPercent > 100) fail("/app/subcontractors", "Retention must be between 0% and 100%.");
+  if (milestoneId) {
+    const milestone = await prisma.contractMilestone.findFirst({
+      where: { id: milestoneId, organizationId: session.organizationId, projectId },
+      select: { id: true }
+    });
+    if (!milestone) fail("/app/subcontractors", "Select a milestone belonging to the chosen project.");
+  }
   const count = await prisma.workOrder.count({ where: { organizationId: session.organizationId } });
   await prisma.workOrder.create({
     data: {
       organizationId: session.organizationId,
       projectId,
       subcontractorId,
-      milestoneId: optionalText(formData, "milestoneId"),
+      milestoneId,
       workOrderNumber: `WO-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`,
       scope: text(formData, "scope"),
       startDate: dateValue(formData, "startDate"),
       endDate: dateValue(formData, "endDate"),
       value,
-      retentionPercent: Math.max(0, numberValue(formData, "retentionPercent")),
+      retentionPercent,
       status: "ISSUED"
     }
   });

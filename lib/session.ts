@@ -3,11 +3,21 @@ import { OrgRole, Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { can, type Permission, projectRestrictedRoles } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { moduleForPermission, organizationCanUseModule } from "@/lib/subscription";
 
 export async function requireSession(permission?: Permission) {
   const session = await auth();
   if (!session?.user?.id || !session.organizationId) redirect("/login");
   if (permission && !can(session.role, permission)) redirect("/app?error=Access denied");
+  const organization = await prisma.organization.findUnique({
+    where: { id: session.organizationId },
+    select: { status: true, industry: true }
+  });
+  if (!organization || organization.status !== "ACTIVE") redirect("/suspended");
+  const requiredModule = moduleForPermission(permission);
+  if (requiredModule && !(await organizationCanUseModule(session.organizationId, requiredModule, organization.industry))) {
+    redirect("/app?error=This module is not enabled for your subscription");
+  }
   return session;
 }
 

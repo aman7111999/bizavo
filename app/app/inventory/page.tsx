@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 import { cn, enumLabel, money, number, shortDate } from "@/lib/utils";
 
 export const metadata = { title: "Inventory" };
@@ -22,43 +22,57 @@ export const metadata = { title: "Inventory" };
 export default async function InventoryPage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; view?: string };
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
   const session = await requireSession("inventory:view");
+  const query = await searchParams;
+  const projectIds = await accessibleProjectIds(session);
+  const locationScope = projectIds !== undefined ? { projectId: { in: projectIds } } : {};
+  const projectScope = projectIds !== undefined ? { id: { in: projectIds } } : {};
   const [items, locations, stocks, movements, projects, vendors] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { organizationId: session.organizationId },
       include: {
         category: true,
         preferredVendor: { select: { name: true } },
-        stocks: { select: { quantity: true } }
+        stocks: {
+          where: projectIds !== undefined ? { location: { projectId: { in: projectIds } } } : {},
+          select: { quantity: true }
+        }
       },
       orderBy: { name: "asc" }
     }),
     prisma.inventoryLocation.findMany({
-      where: { organizationId: session.organizationId, active: true },
+      where: { organizationId: session.organizationId, active: true, ...locationScope },
       include: { project: { select: { name: true } }, _count: { select: { stocks: true } } },
       orderBy: { name: "asc" }
     }),
     prisma.inventoryStock.findMany({
-      where: { organizationId: session.organizationId },
+      where: {
+        organizationId: session.organizationId,
+        ...(projectIds !== undefined ? { location: { projectId: { in: projectIds } } } : {})
+      },
       include: { item: true, location: true },
       orderBy: [{ location: { name: "asc" } }, { item: { name: "asc" } }]
     }),
     prisma.stockMovement.findMany({
-      where: { organizationId: session.organizationId },
+      where: {
+        organizationId: session.organizationId,
+        ...(projectIds !== undefined ? { location: { projectId: { in: projectIds } } } : {})
+      },
       include: { item: true, location: true, project: { select: { name: true } } },
       orderBy: { occurredAt: "desc" },
       take: 100
     }),
-    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] } }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] }, ...projectScope }, orderBy: { name: "asc" } }),
     prisma.vendor.findMany({ where: { organizationId: session.organizationId, active: true }, orderBy: { name: "asc" } })
   ]);
   const totalByItem = new Map(items.map((item) => [item.id, item.stocks.reduce((sum, stock) => sum + Number(stock.quantity), 0)]));
   const lowStockItems = items.filter((item) => Number(item.reorderLevel) > 0 && (totalByItem.get(item.id) ?? 0) <= Number(item.reorderLevel));
   const stockValue = stocks.reduce((sum, stock) => sum + Number(stock.quantity) * Number(stock.item.averageCost), 0);
-  const view = searchParams.view ?? "items";
+  const view = query.view ?? "items";
   const manage = can(session.role, "inventory:manage");
+  const catalogueManage = manage && session.role !== "SITE_ENGINEER";
 
   return (
     <div className="space-y-7">
@@ -67,7 +81,7 @@ export default async function InventoryPage({
         title="Inventory"
         description="Item catalogue, site stores, weighted-average stock value, receipts, issues, transfers and adjustments."
       />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card><CardContent className="p-5"><Boxes className="h-5 w-5 text-primary" /><p className="mt-4 text-2xl font-bold">{items.length}</p><p className="text-xs text-muted-foreground">Active catalogue items</p></CardContent></Card>
         <Card><CardContent className="p-5"><Warehouse className="h-5 w-5 text-primary" /><p className="mt-4 text-2xl font-bold">{locations.length}</p><p className="text-xs text-muted-foreground">Warehouses and site stores</p></CardContent></Card>
@@ -96,7 +110,7 @@ export default async function InventoryPage({
               ) : <EmptyState icon={Boxes} title="No inventory items" description="Create the catalogue that purchase orders, receipts and site issues will use." />}
             </CardContent>
           </Card>
-          {manage ? (
+          {catalogueManage ? (
             <Card>
               <CardHeader><CardTitle>Create item</CardTitle><p className="text-sm text-muted-foreground">Opening stock is optional and posts to the inventory asset account.</p></CardHeader>
               <CardContent>
@@ -123,7 +137,7 @@ export default async function InventoryPage({
         <div className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{locations.map((location) => { const locationStocks = stocks.filter((stock) => stock.locationId === location.id); const value = locationStocks.reduce((sum, stock) => sum + Number(stock.quantity) * Number(stock.item.averageCost), 0); return <Card key={location.id}><CardContent className="p-5"><div className="flex items-start justify-between"><div className="rounded-xl bg-primary/10 p-3 text-primary"><Warehouse className="h-5 w-5" /></div><Badge variant={location.type === "SITE_STORE" ? "warning" : "secondary"}>{enumLabel(location.type)}</Badge></div><h2 className="mt-4 font-semibold">{location.name}</h2><p className="text-xs text-muted-foreground">{location.code} · {location.project?.name ?? "Organization-wide"}</p><div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3"><div><p className="text-[11px] text-muted-foreground">Items</p><p className="font-semibold">{locationStocks.filter((stock) => Number(stock.quantity) !== 0).length}</p></div><div><p className="text-[11px] text-muted-foreground">Value</p><p className="font-semibold">{money(value, session.currency)}</p></div></div></CardContent></Card>; })}</div>
           <Card><CardHeader><CardTitle>Stock by location</CardTitle></CardHeader><CardContent>{stocks.length ? <Table><TableHeader><TableRow><TableHead>Location</TableHead><TableHead>Item</TableHead><TableHead>Quantity</TableHead><TableHead>Avg. cost</TableHead><TableHead className="text-right">Value</TableHead></TableRow></TableHeader><TableBody>{stocks.filter((stock) => Number(stock.quantity) !== 0).map((stock) => <TableRow key={stock.id}><TableCell><p className="font-medium">{stock.location.name}</p><p className="text-xs text-muted-foreground">{stock.location.code}</p></TableCell><TableCell><p className="font-medium">{stock.item.name}</p><p className="text-xs text-muted-foreground">{stock.item.sku}</p></TableCell><TableCell className="font-semibold">{number(stock.quantity)} {stock.item.unit}</TableCell><TableCell>{money(stock.item.averageCost, session.currency)}</TableCell><TableCell className="text-right font-semibold">{money(Number(stock.quantity) * Number(stock.item.averageCost), session.currency)}</TableCell></TableRow>)}</TableBody></Table> : <EmptyState icon={Warehouse} title="No stock recorded" description="Receive an approved purchase order or add opening stock to an item." />}</CardContent></Card>
-          {manage ? <Card><CardHeader><CardTitle>Add inventory location</CardTitle></CardHeader><CardContent><form action={createInventoryLocation} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><FormField label="Name"><Input name="name" required /></FormField><FormField label="Code"><Input name="code" required /></FormField><FormField label="Type"><Select name="type"><option value="CENTRAL_WAREHOUSE">Central warehouse</option><option value="SITE_STORE">Site store</option></Select></FormField><FormField label="Linked project"><Select name="projectId"><option value="">Organization-wide</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</Select></FormField><FormField label="Address" className="sm:col-span-2 lg:col-span-4"><Input name="address" /></FormField><div className="sm:col-span-2 lg:col-span-4"><Button type="submit">Create location</Button></div></form></CardContent></Card> : null}
+          {catalogueManage ? <Card><CardHeader><CardTitle>Add inventory location</CardTitle></CardHeader><CardContent><form action={createInventoryLocation} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><FormField label="Name"><Input name="name" required /></FormField><FormField label="Code"><Input name="code" required /></FormField><FormField label="Type"><Select name="type"><option value="CENTRAL_WAREHOUSE">Central warehouse</option><option value="SITE_STORE">Site store</option></Select></FormField><FormField label="Linked project"><Select name="projectId"><option value="">Organization-wide</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</Select></FormField><FormField label="Address" className="sm:col-span-2 lg:col-span-4"><Input name="address" /></FormField><div className="sm:col-span-2 lg:col-span-4"><Button type="submit">Create location</Button></div></form></CardContent></Card> : null}
         </div>
       ) : null}
 

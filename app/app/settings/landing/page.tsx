@@ -13,8 +13,9 @@ import { requireSession } from "@/lib/session";
 
 export const metadata = { title: "Public page" };
 
-export default async function LandingSettingsPage({ searchParams }: { searchParams: { error?: string; success?: string } }) {
+export default async function LandingSettingsPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
   const session = await requireSession("landing:manage");
+  const query = await searchParams;
   const [landing, projects] = await Promise.all([
     prisma.landingPage.findUnique({ where: { organizationId: session.organizationId } }),
     prisma.project.findMany({ where: { organizationId: session.organizationId }, orderBy: { startDate: "desc" } })
@@ -30,7 +31,7 @@ export default async function LandingSettingsPage({ searchParams }: { searchPara
         description="Edit your company story and turn website enquiries into CRM leads."
         action={<Link href={`/s/${session.organizationSlug}`} target="_blank" className={buttonVariants({ variant: "outline" })}><ExternalLink className="h-4 w-4" />Open public page</Link>}
       />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Globe2 className="h-5 w-5 text-primary" />Page content</CardTitle><p className="text-sm text-muted-foreground">Your page is available at /s/{session.organizationSlug}</p></CardHeader>
         <CardContent>

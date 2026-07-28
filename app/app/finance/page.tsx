@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Landmark, ReceiptIndianRupee, Scale, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
-import { createExpense, issueClientInvoice, recordClientPayment, recordVendorPayment } from "@/app/app/finance/actions";
+import { HandCoins, Landmark, ReceiptIndianRupee, Scale, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
+import { createExpense, issueClientInvoice, recordClientPayment, recordPayrollPayment, recordVendorPayment } from "@/app/app/finance/actions";
 import { AlertMessage } from "@/components/alert-message";
 import { EmptyState } from "@/components/empty-state";
 import { FormField } from "@/components/form-field";
@@ -22,10 +22,11 @@ export const metadata = { title: "Finance" };
 export default async function FinancePage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; view?: string };
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
   const session = await requireSession("finance:view");
-  const [financials, balanceSheet, invoices, bills, expenses, accounts, projects, journals] = await Promise.all([
+  const query = await searchParams;
+  const [financials, balanceSheet, invoices, bills, expenses, accounts, projects, journals, clientPayments, vendorPayments, payrollRuns] = await Promise.all([
     getProjectFinancials(session.organizationId),
     getBalanceSheet(session.organizationId),
     prisma.clientInvoice.findMany({
@@ -55,9 +56,36 @@ export default async function FinancePage({
       include: { lines: { include: { account: { select: { code: true, name: true } } } } },
       orderBy: [{ entryDate: "desc" }, { createdAt: "desc" }],
       take: 50
+    }),
+    prisma.clientPayment.findMany({
+      where: { organizationId: session.organizationId },
+      include: {
+        invoice: {
+          select: {
+            invoiceNumber: true,
+            project: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
+      take: 100
+    }),
+    prisma.vendorPayment.findMany({
+      where: { organizationId: session.organizationId },
+      include: {
+        vendor: { select: { name: true } },
+        subcontractor: { select: { name: true } },
+        vendorBill: { select: { billNumber: true, project: { select: { name: true } } } }
+      },
+      orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
+      take: 100
+    }),
+    prisma.payrollRun.findMany({
+      where: { organizationId: session.organizationId, status: { in: ["PROCESSED", "PAID"] } },
+      orderBy: [{ year: "desc" }, { month: "desc" }]
     })
   ]);
-  const view = searchParams.view ?? "overview";
+  const view = query.view ?? "overview";
   const manage = can(session.role, "finance:manage");
   const receivables = invoices.filter((invoice) => ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(invoice.status)).reduce((sum, invoice) => sum + Number(invoice.totalAmount) - Number(invoice.paidAmount), 0);
   const payables = bills.filter((bill) => ["OPEN", "PARTIALLY_PAID", "OVERDUE"].includes(bill.status)).reduce((sum, bill) => sum + Number(bill.amount) - Number(bill.paidAmount), 0);
@@ -65,8 +93,8 @@ export default async function FinancePage({
   return (
     <div className="space-y-7">
       <PageHeader eyebrow="Accounting backbone" title="Finance" description="Construction revenue, project costs, receivables, payables and double-entry financial statements." />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
-      <div className="flex flex-wrap gap-2">{[["overview", "Overview"], ["projects", "Project P&L"], ["invoices", "Client invoices"], ["payables", "Payables"], ["expenses", "Expenses"], ["ledger", "Ledger & accounts"]].map(([value, label]) => <Link key={value} href={`/app/finance?view=${value}`} className={buttonVariants({ variant: view === value ? "default" : "outline", size: "sm" })}>{label}</Link>)}</div>
+      <AlertMessage error={query.error} success={query.success} />
+      <div className="flex flex-wrap gap-2">{[["overview", "Overview"], ["projects", "Project P&L"], ["invoices", "Client invoices"], ["payables", "Payables"], ["payments", "Payments"], ["expenses", "Expenses"], ["ledger", "Ledger & accounts"]].map(([value, label]) => <Link key={value} href={`/app/finance?view=${value}`} className={buttonVariants({ variant: view === value ? "default" : "outline", size: "sm" })}>{label}</Link>)}</div>
 
       {view === "overview" ? (
         <div className="space-y-5">
@@ -89,12 +117,79 @@ export default async function FinancePage({
 
       {view === "invoices" ? (
         <div className="space-y-5">
-          <Card><CardHeader><CardTitle>Client invoices</CardTitle></CardHeader><CardContent>{invoices.length ? <Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Project / milestone</TableHead><TableHead>Issue / due</TableHead><TableHead>Status</TableHead><TableHead>Total</TableHead><TableHead>Balance</TableHead><TableHead /></TableRow></TableHeader><TableBody>{invoices.map((invoice) => { const balance = Number(invoice.totalAmount) - Number(invoice.paidAmount); return <TableRow key={invoice.id}><TableCell className="font-semibold">{invoice.invoiceNumber}</TableCell><TableCell><p>{invoice.project.name}</p><p className="text-xs text-muted-foreground">{invoice.milestone?.name ?? "Manual invoice"}</p></TableCell><TableCell><p>{shortDate(invoice.issueDate)}</p><p className="text-xs text-muted-foreground">Due {shortDate(invoice.dueDate)}</p></TableCell><TableCell><Badge variant={invoice.status === "PAID" ? "success" : invoice.status === "OVERDUE" ? "destructive" : invoice.status === "DRAFT" ? "secondary" : "warning"}>{enumLabel(invoice.status)}</Badge></TableCell><TableCell>{money(invoice.totalAmount, session.currency)}</TableCell><TableCell className="font-semibold">{money(balance, session.currency)}</TableCell><TableCell>{manage && invoice.status === "DRAFT" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Issue</summary><form action={issueClientInvoice} className="mt-2 grid w-56 gap-2"><input type="hidden" name="invoiceId" value={invoice.id} /><Input name="issueDate" type="date" defaultValue={invoice.issueDate.toISOString().slice(0, 10)} /><Input name="dueDate" type="date" defaultValue={invoice.dueDate.toISOString().slice(0, 10)} /><Input name="taxAmount" type="number" min="0" step="0.01" defaultValue={Number(invoice.taxAmount)} placeholder="Tax amount" /><Button type="submit" size="sm">Issue invoice</Button></form></details> : manage && balance > 0 && invoice.status !== "VOID" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Record payment</summary><form action={recordClientPayment} className="mt-2 grid w-56 gap-2"><input type="hidden" name="invoiceId" value={invoice.id} /><Input name="amount" type="number" min="0.01" max={balance} step="0.01" placeholder={`Max ${balance}`} required /><Input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><Select name="method"><option>Bank transfer</option><option>Cheque</option><option>Cash</option><option>UPI</option></Select><Input name="reference" placeholder="Reference" /><Button type="submit" size="sm">Save payment</Button></form></details> : null}</TableCell></TableRow>; })}</TableBody></Table> : <EmptyState icon={ReceiptIndianRupee} title="No client invoices" description="Completing project milestones creates draft invoices here." />}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Client invoices</CardTitle></CardHeader><CardContent>{invoices.length ? <Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Project / milestone</TableHead><TableHead>Issue / due</TableHead><TableHead>Status</TableHead><TableHead>Total</TableHead><TableHead>Balance</TableHead><TableHead /></TableRow></TableHeader><TableBody>{invoices.map((invoice) => { const balance = Number(invoice.totalAmount) - Number(invoice.paidAmount); const displayStatus = ["ISSUED", "PARTIALLY_PAID"].includes(invoice.status) && invoice.dueDate < new Date() ? "OVERDUE" : invoice.status; return <TableRow key={invoice.id}><TableCell className="font-semibold">{invoice.invoiceNumber}</TableCell><TableCell><p>{invoice.project.name}</p><p className="text-xs text-muted-foreground">{invoice.milestone?.name ?? "Manual invoice"}</p></TableCell><TableCell><p>{shortDate(invoice.issueDate)}</p><p className="text-xs text-muted-foreground">Due {shortDate(invoice.dueDate)}</p></TableCell><TableCell><Badge variant={displayStatus === "PAID" ? "success" : displayStatus === "OVERDUE" ? "destructive" : displayStatus === "DRAFT" ? "secondary" : "warning"}>{enumLabel(displayStatus)}</Badge></TableCell><TableCell>{money(invoice.totalAmount, session.currency)}</TableCell><TableCell className="font-semibold">{money(balance, session.currency)}</TableCell><TableCell>{manage && invoice.status === "DRAFT" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Issue</summary><form action={issueClientInvoice} className="mt-2 grid w-56 gap-2"><input type="hidden" name="invoiceId" value={invoice.id} /><Input name="issueDate" type="date" defaultValue={invoice.issueDate.toISOString().slice(0, 10)} /><Input name="dueDate" type="date" defaultValue={invoice.dueDate.toISOString().slice(0, 10)} /><Input name="taxAmount" type="number" min="0" step="0.01" defaultValue={Number(invoice.taxAmount)} placeholder="Tax amount" /><Button type="submit" size="sm">Issue invoice</Button></form></details> : manage && balance > 0 && invoice.status !== "VOID" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Record payment</summary><form action={recordClientPayment} className="mt-2 grid w-56 gap-2"><input type="hidden" name="invoiceId" value={invoice.id} /><Input name="amount" type="number" min="0.01" max={balance} step="0.01" placeholder={`Max ${balance}`} required /><Input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><Select name="method"><option>Bank transfer</option><option>Cheque</option><option>Cash</option><option>UPI</option></Select><Input name="reference" placeholder="Reference" /><Button type="submit" size="sm">Save payment</Button></form></details> : null}</TableCell></TableRow>; })}</TableBody></Table> : <EmptyState icon={ReceiptIndianRupee} title="No client invoices" description="Completing project milestones creates draft invoices here." />}</CardContent></Card>
         </div>
       ) : null}
 
       {view === "payables" ? (
-        <Card><CardHeader><CardTitle>Vendor and subcontractor payables</CardTitle></CardHeader><CardContent>{bills.length ? <Table><TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Payee</TableHead><TableHead>Project</TableHead><TableHead>Due date</TableHead><TableHead>Status</TableHead><TableHead>Amount</TableHead><TableHead>Balance</TableHead><TableHead /></TableRow></TableHeader><TableBody>{bills.map((bill) => { const balance = Number(bill.amount) - Number(bill.paidAmount); return <TableRow key={bill.id}><TableCell><p className="font-semibold">{bill.billNumber}</p><p className="text-xs text-muted-foreground">{shortDate(bill.billDate)}</p></TableCell><TableCell>{bill.vendor?.name ?? bill.subcontractor?.name ?? "Other"}</TableCell><TableCell><p>{bill.project.name}</p><p className="text-xs text-muted-foreground">{bill.project.code}</p></TableCell><TableCell>{shortDate(bill.dueDate)}</TableCell><TableCell><Badge variant={bill.status === "PAID" ? "success" : bill.status === "OVERDUE" ? "destructive" : "warning"}>{enumLabel(bill.status)}</Badge></TableCell><TableCell>{money(bill.amount, session.currency)}</TableCell><TableCell className="font-semibold">{money(balance, session.currency)}</TableCell><TableCell>{manage && balance > 0 && bill.status !== "VOID" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Pay</summary><form action={recordVendorPayment} className="mt-2 grid w-56 gap-2"><input type="hidden" name="billId" value={bill.id} /><Input name="amount" type="number" min="0.01" max={balance} step="0.01" required /><Input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><Select name="method"><option>Bank transfer</option><option>Cheque</option><option>Cash</option><option>UPI</option></Select><Input name="reference" placeholder="Reference" /><Button type="submit" size="sm">Record payment</Button></form></details> : null}</TableCell></TableRow>; })}</TableBody></Table> : <EmptyState icon={WalletCards} title="No payables" description="Goods receipts and subcontractor bills create payable records automatically." />}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Vendor and subcontractor payables</CardTitle></CardHeader><CardContent>{bills.length ? <Table><TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Payee</TableHead><TableHead>Project</TableHead><TableHead>Due date</TableHead><TableHead>Status</TableHead><TableHead>Amount</TableHead><TableHead>Balance</TableHead><TableHead /></TableRow></TableHeader><TableBody>{bills.map((bill) => { const balance = Number(bill.amount) - Number(bill.paidAmount); const displayStatus = ["OPEN", "PARTIALLY_PAID"].includes(bill.status) && bill.dueDate < new Date() ? "OVERDUE" : bill.status; return <TableRow key={bill.id}><TableCell><p className="font-semibold">{bill.billNumber}</p><p className="text-xs text-muted-foreground">{shortDate(bill.billDate)}</p></TableCell><TableCell>{bill.vendor?.name ?? bill.subcontractor?.name ?? "Other"}</TableCell><TableCell><p>{bill.project.name}</p><p className="text-xs text-muted-foreground">{bill.project.code}</p></TableCell><TableCell>{shortDate(bill.dueDate)}</TableCell><TableCell><Badge variant={displayStatus === "PAID" ? "success" : displayStatus === "OVERDUE" ? "destructive" : "warning"}>{enumLabel(displayStatus)}</Badge></TableCell><TableCell>{money(bill.amount, session.currency)}</TableCell><TableCell className="font-semibold">{money(balance, session.currency)}</TableCell><TableCell>{manage && balance > 0 && bill.status !== "VOID" ? <details><summary className="cursor-pointer text-xs font-semibold text-primary">Pay</summary><form action={recordVendorPayment} className="mt-2 grid w-56 gap-2"><input type="hidden" name="billId" value={bill.id} /><Input name="amount" type="number" min="0.01" max={balance} step="0.01" required /><Input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><Select name="method"><option>Bank transfer</option><option>Cheque</option><option>Cash</option><option>UPI</option></Select><Input name="reference" placeholder="Reference" /><Button type="submit" size="sm">Record payment</Button></form></details> : null}</TableCell></TableRow>; })}</TableBody></Table> : <EmptyState icon={WalletCards} title="No payables" description="Goods receipts and subcontractor bills create payable records automatically." />}</CardContent></Card>
+      ) : null}
+
+      {view === "payments" ? (
+        <div className="space-y-5">
+          <Card>
+            <CardHeader>
+              <CardTitle>Payroll awaiting payment</CardTitle>
+              <p className="text-sm text-muted-foreground">HR processes payroll; Finance records the actual bank payment. Statutory deductions remain in payroll payable until remitted.</p>
+            </CardHeader>
+            <CardContent>
+              {payrollRuns.filter((run) => run.status === "PROCESSED").length ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {payrollRuns.filter((run) => run.status === "PROCESSED").map((run) => (
+                    <form key={run.id} action={recordPayrollPayment} className="rounded-xl border p-4">
+                      <input type="hidden" name="payrollRunId" value={run.id} />
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(new Date(run.year, run.month - 1, 1))}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Net salary payable</p>
+                        </div>
+                        <p className="font-bold text-primary">{money(run.totalNet, session.currency)}</p>
+                      </div>
+                      {manage ? (
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <Input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
+                          <Select name="method"><option>Bank transfer</option><option>Cheque</option><option>Cash</option></Select>
+                          <Input name="reference" placeholder="Bank reference" />
+                          <Button type="submit" size="sm" className="sm:col-span-3"><HandCoins className="h-4 w-4" />Mark payroll paid</Button>
+                        </div>
+                      ) : null}
+                    </form>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={HandCoins} title="No payroll awaiting payment" description="Processed payroll runs will appear here until Finance records the payment." />
+              )}
+            </CardContent>
+          </Card>
+
+          <section className="grid gap-5 xl:grid-cols-2">
+            <Card>
+              <CardHeader><CardTitle>Client payment receipts</CardTitle></CardHeader>
+              <CardContent>
+                {clientPayments.length ? (
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Invoice / project</TableHead><TableHead>Method / reference</TableHead><TableHead className="text-right">Received</TableHead></TableRow></TableHeader>
+                    <TableBody>{clientPayments.map((payment) => <TableRow key={payment.id}><TableCell>{shortDate(payment.paymentDate)}</TableCell><TableCell><p className="font-medium">{payment.invoice.invoiceNumber}</p><p className="text-xs text-muted-foreground">{payment.invoice.project.name}</p></TableCell><TableCell><p>{payment.method}</p><p className="text-xs text-muted-foreground">{payment.reference ?? "No reference"}</p></TableCell><TableCell className="text-right font-semibold text-emerald-700">{money(payment.amount, session.currency)}</TableCell></TableRow>)}</TableBody>
+                  </Table>
+                ) : <EmptyState icon={ReceiptIndianRupee} title="No client payments" description="Receipts recorded against client invoices will appear here." />}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Outgoing payment register</CardTitle></CardHeader>
+              <CardContent>
+                {vendorPayments.length || payrollRuns.some((run) => run.status === "PAID") ? (
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Payee / source</TableHead><TableHead>Method / reference</TableHead><TableHead className="text-right">Paid</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {payrollRuns.filter((run) => run.status === "PAID").map((run) => <TableRow key={`payroll-${run.id}`}><TableCell>{shortDate(run.paidAt)}</TableCell><TableCell><p className="font-medium">Employee payroll</p><p className="text-xs text-muted-foreground">{String(run.month).padStart(2, "0")}/{run.year}</p></TableCell><TableCell><p>{run.paymentMethod ?? "Bank transfer"}</p><p className="text-xs text-muted-foreground">{run.paymentReference ?? "No reference"}</p></TableCell><TableCell className="text-right font-semibold">{money(run.totalNet, session.currency)}</TableCell></TableRow>)}
+                      {vendorPayments.map((payment) => <TableRow key={payment.id}><TableCell>{shortDate(payment.paymentDate)}</TableCell><TableCell><p className="font-medium">{payment.vendor?.name ?? payment.subcontractor?.name ?? "Payee"}</p><p className="text-xs text-muted-foreground">{payment.vendorBill.billNumber} · {payment.vendorBill.project.name}</p></TableCell><TableCell><p>{payment.method}</p><p className="text-xs text-muted-foreground">{payment.reference ?? "No reference"}</p></TableCell><TableCell className="text-right font-semibold">{money(payment.amount, session.currency)}</TableCell></TableRow>)}
+                    </TableBody>
+                  </Table>
+                ) : <EmptyState icon={WalletCards} title="No outgoing payments" description="Vendor, subcontractor and payroll payments will appear here." />}
+              </CardContent>
+            </Card>
+          </section>
+        </div>
       ) : null}
 
       {view === "expenses" ? (

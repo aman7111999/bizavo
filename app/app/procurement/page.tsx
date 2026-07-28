@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 import { cn, enumLabel, money, shortDate } from "@/lib/utils";
 
 export const metadata = { title: "Procurement" };
@@ -22,25 +22,28 @@ export const metadata = { title: "Procurement" };
 export default async function ProcurementPage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; view?: string };
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
   const session = await requireSession("procurement:view");
+  const query = await searchParams;
+  const projectIds = await accessibleProjectIds(session);
+  const boundProjectScope = projectIds !== undefined ? { projectId: { in: projectIds } } : {};
   const [purchaseOrders, vendors] = await Promise.all([
     prisma.purchaseOrder.findMany({
-      where: { organizationId: session.organizationId },
+      where: { organizationId: session.organizationId, ...boundProjectScope },
       include: { project: { select: { name: true, code: true } }, vendor: { select: { name: true } }, _count: { select: { receipts: true } } },
       orderBy: { createdAt: "desc" }
     }),
     prisma.vendor.findMany({
       where: { organizationId: session.organizationId },
       include: {
-        purchaseOrders: { select: { totalAmount: true } },
-        bills: { where: { status: { in: ["OPEN", "PARTIALLY_PAID", "OVERDUE"] } }, select: { amount: true, paidAmount: true } }
+        purchaseOrders: { where: boundProjectScope, select: { totalAmount: true } },
+        bills: { where: { ...boundProjectScope, status: { in: ["OPEN", "PARTIALLY_PAID", "OVERDUE"] } }, select: { amount: true, paidAmount: true } }
       },
       orderBy: { name: "asc" }
     })
   ]);
-  const showVendors = searchParams.view === "vendors";
+  const showVendors = query.view === "vendors";
 
   return (
     <div className="space-y-7">
@@ -50,7 +53,7 @@ export default async function ProcurementPage({
         description="Vendor directory, purchase order approvals, material receipts and linked payables."
         action={can(session.role, "procurement:request") ? <Link href="/app/procurement/new" className={buttonVariants()}>New purchase order</Link> : undefined}
       />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <div className="flex gap-2">
         <Link href="/app/procurement" className={buttonVariants({ variant: !showVendors ? "default" : "outline", size: "sm" })}>Purchase orders</Link>
         <Link href="/app/procurement?view=vendors" className={buttonVariants({ variant: showVendors ? "default" : "outline", size: "sm" })}>Vendors</Link>

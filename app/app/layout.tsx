@@ -14,7 +14,7 @@ export default async function ApplicationLayout({ children }: { children: React.
         <AppTopbar userName={session.user.name} organizationName={session.organizationName} />
         <main className="mx-auto max-w-[1540px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
       </div>
-      <MobileNav />
+      <MobileNav role={session.role} />
     </div>
   );
 }

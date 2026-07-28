@@ -129,7 +129,11 @@ export async function updateMilestone(formData: FormData) {
   });
   if (!milestone) fail(`/app/projects/${projectId}`, "Milestone not found.");
   const completion = Math.min(100, Math.max(0, numberValue(formData, "completion")));
-  const requestedStatus = text(formData, "status") as MilestoneStatus;
+  const statusValue = text(formData, "status");
+  if (!Object.values(MilestoneStatus).includes(statusValue as MilestoneStatus)) {
+    fail(`/app/projects/${projectId}`, "Select a valid milestone status.");
+  }
+  const requestedStatus = statusValue as MilestoneStatus;
   const status = completion === 100 ? MilestoneStatus.COMPLETED : requestedStatus;
 
   await prisma.$transaction(async (tx) => {
@@ -169,15 +173,28 @@ export async function createPhase(formData: FormData) {
   const projectId = text(formData, "projectId");
   const { session } = await requireProject(projectId, "projects:manage");
   if (!text(formData, "name")) fail(`/app/projects/${projectId}`, "Phase name is required.");
+  const milestoneId = optionalText(formData, "milestoneId");
+  if (milestoneId) {
+    const milestone = await prisma.contractMilestone.findFirst({
+      where: { id: milestoneId, projectId, organizationId: session.organizationId },
+      select: { id: true }
+    });
+    if (!milestone) fail(`/app/projects/${projectId}`, "Select a milestone belonging to this project.");
+  }
+  const startDate = dateValue(formData, "startDate");
+  const endDate = dateValue(formData, "endDate");
+  if (startDate && endDate && endDate < startDate) {
+    fail(`/app/projects/${projectId}`, "Phase end date cannot be before its start date.");
+  }
   await prisma.projectPhase.create({
     data: {
       organizationId: session.organizationId,
       projectId,
-      milestoneId: optionalText(formData, "milestoneId"),
+      milestoneId,
       name: text(formData, "name"),
       description: optionalText(formData, "description"),
-      startDate: dateValue(formData, "startDate"),
-      endDate: dateValue(formData, "endDate"),
+      startDate,
+      endDate,
       assignee: optionalText(formData, "assignee")
     }
   });
@@ -193,11 +210,15 @@ export async function updatePhase(formData: FormData) {
   });
   if (!phase) fail(`/app/projects/${projectId}`, "Phase not found.");
   const completion = Math.min(100, Math.max(0, numberValue(formData, "completion")));
+  const statusValue = text(formData, "status");
+  if (!Object.values(TaskStatus).includes(statusValue as TaskStatus)) {
+    fail(`/app/projects/${projectId}`, "Select a valid phase status.");
+  }
   await prisma.projectPhase.update({
     where: { id: phase.id },
     data: {
       completion,
-      status: completion === 100 ? TaskStatus.COMPLETED : (text(formData, "status") as TaskStatus)
+      status: completion === 100 ? TaskStatus.COMPLETED : statusValue as TaskStatus
     }
   });
   revalidatePath(`/app/projects/${projectId}`);
@@ -210,6 +231,11 @@ export async function uploadProjectDocument(formData: FormData) {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) fail(`/app/projects/${projectId}`, "Choose a file to upload.");
   if (file.size > 8 * 1024 * 1024) fail(`/app/projects/${projectId}`, "Files must be smaller than 8 MB.");
+  const extension = file.name.toLowerCase().split(".").pop() ?? "";
+  const allowedExtensions = new Set(["pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "xls", "xlsx", "dwg", "dxf"]);
+  if (!allowedExtensions.has(extension)) {
+    fail(`/app/projects/${projectId}`, "Use PDF, image, Word, Excel, DWG or DXF project files.");
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? "project-documents";

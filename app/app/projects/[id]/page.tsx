@@ -39,14 +39,17 @@ export default async function ProjectDetailPage({
   params,
   searchParams
 }: {
-  params: { id: string };
-  searchParams: { error?: string; success?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const { session } = await requireProject(params.id);
+  const route = await params;
+  const query = await searchParams;
+  const { session } = await requireProject(route.id);
   const manage = can(session.role, "projects:manage");
-  const [project, financial] = await Promise.all([
+  const financeView = can(session.role, "finance:view");
+  const [project, financialRows] = await Promise.all([
     prisma.project.findFirstOrThrow({
-      where: { id: params.id, organizationId: session.organizationId },
+      where: { id: route.id, organizationId: session.organizationId },
       include: {
         contracts: { include: { milestones: { orderBy: { dueDate: "asc" } } }, orderBy: { createdAt: "desc" } },
         phases: { include: { milestone: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
@@ -55,8 +58,9 @@ export default async function ProjectDetailPage({
         inventoryLocations: { select: { id: true, name: true, code: true } }
       }
     }),
-    getProjectFinancials(session.organizationId, [params.id]).then((rows) => rows[0])
+    financeView ? getProjectFinancials(session.organizationId, [route.id]) : Promise.resolve([])
   ]);
+  const financial = financialRows[0];
 
   const milestones = project.contracts.flatMap((contract) => contract.milestones);
 
@@ -73,9 +77,9 @@ export default async function ProjectDetailPage({
           action={<Badge variant={project.status === "ACTIVE" ? "success" : project.status === "ON_HOLD" ? "warning" : "secondary"}>{enumLabel(project.status)}</Badge>}
         />
       </div>
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {financeView ? <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Approved budget", value: money(project.budget, session.currency), icon: WalletCards },
           { label: "Actual cost", value: money(financial?.actualCost ?? 0, session.currency), icon: ReceiptIndianRupee },
@@ -87,7 +91,7 @@ export default async function ProjectDetailPage({
             <Card key={metric.label}><CardContent className="p-5"><Icon className="h-5 w-5 text-primary" /><p className="mt-4 text-xl font-bold">{metric.value}</p><p className="mt-1 text-xs text-muted-foreground">{metric.label}</p></CardContent></Card>
           );
         })}
-      </section>
+      </section> : null}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">
@@ -112,14 +116,14 @@ export default async function ProjectDetailPage({
             {project.contracts.length ? project.contracts.map((contract) => (
               <div key={contract.id} className="rounded-xl border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><p className="font-semibold">{contract.contractNumber}</p><p className="mt-1 text-xs text-muted-foreground">{contract.paymentTerms}</p></div>
-                  <div className="text-right"><p className="font-semibold">{money(contract.contractValue, session.currency)}</p><p className="text-xs text-muted-foreground">Signed {shortDate(contract.signedAt)}</p></div>
+                  <div><p className="font-semibold">{contract.contractNumber}</p><p className="mt-1 text-xs text-muted-foreground">{financeView ? contract.paymentTerms : "Commercial terms restricted"}</p></div>
+                  <div className="text-right"><p className="font-semibold">{financeView ? money(contract.contractValue, session.currency) : "Commercials restricted"}</p><p className="text-xs text-muted-foreground">Signed {shortDate(contract.signedAt)}</p></div>
                 </div>
                 <div className="mt-4 space-y-3">
                   {contract.milestones.map((milestone) => (
                     <div key={milestone.id} className="rounded-lg bg-slate-50 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div><p className="text-sm font-semibold">{milestone.name}</p><p className="text-xs text-muted-foreground">{number(milestone.billingPercent)}% · {money(milestone.billingAmount, session.currency)} · Due {shortDate(milestone.dueDate)}</p></div>
+                        <div><p className="text-sm font-semibold">{milestone.name}</p><p className="text-xs text-muted-foreground">{financeView ? `${number(milestone.billingPercent)}% · ${money(milestone.billingAmount, session.currency)} · ` : ""}Due {shortDate(milestone.dueDate)}</p></div>
                         <Badge variant={milestone.status === "COMPLETED" || milestone.status === "INVOICED" ? "success" : milestone.status === "IN_PROGRESS" ? "warning" : "secondary"}>{enumLabel(milestone.status)}</Badge>
                       </div>
                       <div className="mt-3 h-2 rounded-full bg-white"><div className="h-full rounded-full bg-primary" style={{ width: `${milestone.completionPercent}%` }} /></div>
@@ -171,7 +175,7 @@ export default async function ProjectDetailPage({
           </CardContent>
         </Card>
 
-        <Card>
+        {financeView ? <Card>
           <CardHeader><CardTitle>Client invoices</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {project.clientInvoices.length ? project.clientInvoices.map((invoice) => (
@@ -183,7 +187,7 @@ export default async function ProjectDetailPage({
             )) : <EmptyState icon={ReceiptIndianRupee} title="No invoices yet" description="Draft invoices appear here when milestones reach 100%." />}
             <Link href="/app/finance" className={cn(buttonVariants({ variant: "outline" }), "w-full")}>Manage invoices</Link>
           </CardContent>
-        </Card>
+        </Card> : null}
       </section>
 
       <Card>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Building2, MapPin } from "lucide-react";
+import { ProjectStatus } from "@prisma/client";
 import { AlertMessage } from "@/components/alert-message";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -9,17 +10,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { projectScope } from "@/lib/session";
 import { cn, enumLabel, money, shortDate } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 export const metadata = { title: "Projects" };
 
 export default async function ProjectsPage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; status?: string };
+  searchParams: Promise<{ error?: string; success?: string; status?: string }>;
 }) {
   const { session, where } = await projectScope();
+  const query = await searchParams;
+  const status = Object.values(ProjectStatus).includes(query.status as ProjectStatus)
+    ? query.status as ProjectStatus
+    : undefined;
+  const manage = can(session.role, "projects:manage");
   const projects = await prisma.project.findMany({
-    where: { ...where, ...(searchParams.status ? { status: searchParams.status as never } : {}) },
+    where: { ...where, ...(status ? { status } : {}) },
     include: {
       contracts: { select: { contractValue: true } },
       milestones: { select: { completionPercent: true } },
@@ -34,15 +41,15 @@ export default async function ProjectsPage({
         eyebrow="Project control"
         title="Projects"
         description="Contracts, milestones, delivery phases, documents and project financial health."
-        action={<Link href="/app/projects/new" className={cn(buttonVariants(), "w-fit")}>New project</Link>}
+        action={manage ? <Link href="/app/projects/new" className={cn(buttonVariants(), "w-fit")}>New project</Link> : undefined}
       />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <div className="flex flex-wrap gap-2">
         {["", "PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED"].map((status) => (
           <Link
             key={status || "all"}
             href={status ? `/app/projects?status=${status}` : "/app/projects"}
-            className={cn(buttonVariants({ variant: (searchParams.status ?? "") === status ? "default" : "outline", size: "sm" }))}
+            className={cn(buttonVariants({ variant: (query.status ?? "") === status ? "default" : "outline", size: "sm" }))}
           >
             {status ? enumLabel(status) : "All"}
           </Link>
@@ -85,7 +92,7 @@ export default async function ProjectsPage({
           })}
         </div>
       ) : (
-        <EmptyState icon={Building2} title="No projects found" description="Create a project or change the selected status filter." action={<Link href="/app/projects/new" className={buttonVariants()}>Create first project</Link>} />
+        <EmptyState icon={Building2} title="No projects found" description={manage ? "Create a project or change the selected status filter." : "No projects are assigned to your account for this filter."} action={manage ? <Link href="/app/projects/new" className={buttonVariants()}>Create first project</Link> : undefined} />
       )}
     </div>
   );

@@ -3,11 +3,23 @@ import { createClient } from "@supabase/supabase-js";
 import { auth } from "@/auth";
 import { can, projectRestrictedRoles } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { organizationCanUseModule } from "@/lib/subscription";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.organizationId || !can(session.role, "projects:view")) {
     return new NextResponse("Unauthorized", { status: 401 });
+  }
+  const organization = await prisma.organization.findUnique({
+    where: { id: session.organizationId },
+    select: { status: true, industry: true }
+  });
+  if (
+    !organization ||
+    organization.status !== "ACTIVE" ||
+    !(await organizationCanUseModule(session.organizationId, "projects", organization.industry))
+  ) {
+    return new NextResponse("Workspace or module unavailable", { status: 403 });
   }
   const { id } = await params;
   const document = await prisma.projectDocument.findFirst({

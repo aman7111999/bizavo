@@ -1,13 +1,19 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { auth } from "@/auth";
+import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { money } from "@/lib/utils";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.organizationId) return new Response("Unauthorized", { status: 401 });
+  const { id } = await params;
   const payslip = await prisma.payslip.findFirst({
-    where: { id: params.id, organizationId: session.organizationId },
+    where: {
+      id,
+      organizationId: session.organizationId,
+      ...(!can(session.role, "hr:manage") ? { employee: { userId: session.user.id } } : {})
+    },
     include: { employee: true, payrollRun: true, organization: true }
   });
   if (!payslip) return new Response("Not found", { status: 404 });

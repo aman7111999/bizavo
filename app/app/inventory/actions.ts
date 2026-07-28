@@ -5,10 +5,13 @@ import { StockMovementType } from "@prisma/client";
 import { accountIds, postJournal } from "@/lib/accounting";
 import { dateValue, fail, numberValue, ok, optionalText, text } from "@/lib/action-utils";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { requireProject, requireSession } from "@/lib/session";
 
 export async function createInventoryItem(formData: FormData) {
   const session = await requireSession("inventory:manage");
+  if (session.role === "SITE_ENGINEER") {
+    fail("/app/inventory", "Site Engineers can post stock operations but cannot change the organization item catalogue.");
+  }
   const name = text(formData, "name");
   const sku = text(formData, "sku").toUpperCase();
   const purchasePrice = numberValue(formData, "purchasePrice");
@@ -26,6 +29,14 @@ export async function createInventoryItem(formData: FormData) {
     select: { id: true }
   });
   if (duplicate) fail("/app/inventory", "That SKU already exists.");
+  const preferredVendorId = optionalText(formData, "preferredVendorId");
+  if (preferredVendorId) {
+    const vendor = await prisma.vendor.findFirst({
+      where: { id: preferredVendorId, organizationId: session.organizationId, active: true },
+      select: { id: true }
+    });
+    if (!vendor) fail("/app/inventory", "Select a valid preferred vendor.");
+  }
   const item = await prisma.inventoryItem.create({
     data: {
       organizationId: session.organizationId,
@@ -37,7 +48,7 @@ export async function createInventoryItem(formData: FormData) {
       averageCost: purchasePrice,
       reorderLevel: Math.max(0, numberValue(formData, "reorderLevel")),
       categoryId: category?.id,
-      preferredVendorId: optionalText(formData, "preferredVendorId")
+      preferredVendorId
     }
   });
   const openingQuantity = numberValue(formData, "openingQuantity");
@@ -87,13 +98,30 @@ export async function createInventoryItem(formData: FormData) {
 
 export async function createInventoryLocation(formData: FormData) {
   const session = await requireSession("inventory:manage");
+  if (session.role === "SITE_ENGINEER") {
+    fail("/app/inventory?view=stock", "Site Engineers cannot create inventory locations.");
+  }
   if (!text(formData, "name") || !text(formData, "code")) fail("/app/inventory", "Location name and code are required.");
+  const projectId = optionalText(formData, "projectId");
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, organizationId: session.organizationId },
+      select: { id: true }
+    });
+    if (!project) fail("/app/inventory?view=stock", "Select a valid linked project.");
+  }
+  const code = text(formData, "code").toUpperCase();
+  const duplicate = await prisma.inventoryLocation.findFirst({
+    where: { organizationId: session.organizationId, code },
+    select: { id: true }
+  });
+  if (duplicate) fail("/app/inventory?view=stock", "That location code is already in use.");
   await prisma.inventoryLocation.create({
     data: {
       organizationId: session.organizationId,
-      projectId: optionalText(formData, "projectId"),
+      projectId,
       name: text(formData, "name"),
-      code: text(formData, "code").toUpperCase(),
+      code,
       type: text(formData, "type") === "SITE_STORE" ? "SITE_STORE" : "CENTRAL_WAREHOUSE",
       address: optionalText(formData, "address")
     }
@@ -103,19 +131,21 @@ export async function createInventoryLocation(formData: FormData) {
 }
 
 export async function issueMaterial(formData: FormData) {
-  const session = await requireSession("inventory:manage");
   const projectId = text(formData, "projectId");
+  const { session, project } = await requireProject(projectId, "inventory:manage");
   const locationId = text(formData, "locationId");
   const itemId = text(formData, "itemId");
   const quantity = numberValue(formData, "quantity");
-  const [project, stock] = await Promise.all([
-    prisma.project.findFirst({ where: { id: projectId, organizationId: session.organizationId } }),
-    prisma.inventoryStock.findFirst({
-      where: { itemId, locationId, organizationId: session.organizationId },
-      include: { item: true }
-    })
-  ]);
-  if (!project || !stock || quantity <= 0) fail("/app/inventory", "Select a valid project, stock item and quantity.");
+  const stock = await prisma.inventoryStock.findFirst({
+    where: {
+      itemId,
+      locationId,
+      organizationId: session.organizationId,
+      ...(session.role === "SITE_ENGINEER" ? { location: { projectId } } : {})
+    },
+    include: { item: true }
+  });
+  if (!stock || !Number.isFinite(quantity) || quantity <= 0) fail("/app/inventory", "Select a valid project, stock item and quantity.");
   if (Number(stock.quantity) < quantity) fail("/app/inventory", `Only ${Number(stock.quantity)} ${stock.item.unit} is available at this location.`);
   const count = await prisma.materialIssue.count({ where: { organizationId: session.organizationId } });
   const issueNumber = `MI-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
@@ -180,13 +210,23 @@ export async function transferStock(formData: FormData) {
   const quantity = numberValue(formData, "quantity");
   if (fromLocationId === toLocationId) fail("/app/inventory", "Source and destination locations must be different.");
   const stock = await prisma.inventoryStock.findFirst({
-    where: { organizationId: session.organizationId, itemId, locationId: fromLocationId },
-    include: { item: true }
+    where: {
+      organizationId: session.organizationId,
+      itemId,
+      locationId: fromLocationId,
+      ...(session.role === "SITE_ENGINEER" ? { location: { projectId: { not: null }, project: { members: { some: { membershipId: session.membershipId } } } } } : {})
+    },
+    include: { item: true, location: true }
   });
   const destination = await prisma.inventoryLocation.findFirst({
-    where: { organizationId: session.organizationId, id: toLocationId, active: true }
+    where: {
+      organizationId: session.organizationId,
+      id: toLocationId,
+      active: true,
+      ...(session.role === "SITE_ENGINEER" ? { projectId: stock?.location.projectId ?? "__none__" } : {})
+    }
   });
-  if (!stock || !destination || quantity <= 0 || Number(stock.quantity) < quantity) fail("/app/inventory", "Insufficient stock or invalid transfer details.");
+  if (!stock || !destination || !Number.isFinite(quantity) || quantity <= 0 || Number(stock.quantity) < quantity) fail("/app/inventory", "Insufficient stock or invalid transfer details.");
   const referenceId = crypto.randomUUID();
   const occurredAt = dateValue(formData, "date") ?? new Date();
   await prisma.$transaction(async (tx) => {
@@ -221,10 +261,15 @@ export async function adjustStock(formData: FormData) {
   const locationId = text(formData, "locationId");
   const adjustment = numberValue(formData, "adjustment");
   const stock = await prisma.inventoryStock.findFirst({
-    where: { organizationId: session.organizationId, itemId, locationId },
+    where: {
+      organizationId: session.organizationId,
+      itemId,
+      locationId,
+      ...(session.role === "SITE_ENGINEER" ? { location: { project: { members: { some: { membershipId: session.membershipId } } } } } : {})
+    },
     include: { item: true }
   });
-  if (!stock || adjustment === 0 || Number(stock.quantity) + adjustment < 0) fail("/app/inventory", "Invalid adjustment or resulting quantity.");
+  if (!stock || !Number.isFinite(adjustment) || adjustment === 0 || Number(stock.quantity) + adjustment < 0) fail("/app/inventory", "Invalid adjustment or resulting quantity.");
   const total = Math.abs(adjustment) * Number(stock.item.averageCost);
   await prisma.$transaction(async (tx) => {
     await tx.inventoryStock.update({ where: { id: stock.id }, data: { quantity: { increment: adjustment } } });

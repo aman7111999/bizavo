@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 import { enumLabel, money, number, shortDate } from "@/lib/utils";
 
 export const metadata = { title: "People & HR" };
@@ -29,47 +29,67 @@ export const metadata = { title: "People & HR" };
 export default async function HrPage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; view?: string };
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
   const session = await requireSession("hr:view");
+  const query = await searchParams;
+  const manage = can(session.role, "hr:manage");
+  const projectIds = await accessibleProjectIds(session);
+  const employeeScope = manage ? {} : { userId: session.user.id };
+  const projectScope = projectIds !== undefined ? { id: { in: projectIds } } : {};
   const [employees, projects, employeeAttendance, laborAttendance, leaves, payrollRuns] = await Promise.all([
     prisma.employee.findMany({
-      where: { organizationId: session.organizationId },
+      where: { organizationId: session.organizationId, ...employeeScope },
       include: { projectAssignments: { include: { project: { select: { name: true } } }, where: { endDate: null }, take: 1 } },
       orderBy: { name: "asc" }
     }),
-    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] } }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] }, ...projectScope }, orderBy: { name: "asc" } }),
     prisma.employeeAttendance.findMany({
-      where: { organizationId: session.organizationId },
+      where: {
+        organizationId: session.organizationId,
+        ...(!manage ? { employee: { userId: session.user.id } } : {})
+      },
       include: { employee: { select: { name: true, employeeCode: true } }, project: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 50
     }),
-    prisma.laborAttendance.findMany({
-      where: { organizationId: session.organizationId },
-      include: { project: { select: { name: true, code: true } } },
-      orderBy: { date: "desc" },
-      take: 50
-    }),
+    manage
+      ? prisma.laborAttendance.findMany({
+          where: { organizationId: session.organizationId },
+          include: { project: { select: { name: true, code: true } } },
+          orderBy: { date: "desc" },
+          take: 50
+        })
+      : Promise.resolve([]),
     prisma.leaveRequest.findMany({
-      where: { organizationId: session.organizationId },
+      where: {
+        organizationId: session.organizationId,
+        ...(!manage ? { employee: { userId: session.user.id } } : {})
+      },
       include: { employee: { select: { name: true, employeeCode: true, annualLeaveBalance: true } } },
       orderBy: { createdAt: "desc" }
     }),
     prisma.payrollRun.findMany({
-      where: { organizationId: session.organizationId },
-      include: { payslips: { include: { employee: { select: { name: true, employeeCode: true } } } } },
+      where: {
+        organizationId: session.organizationId,
+        ...(!manage ? { payslips: { some: { employee: { userId: session.user.id } } } } : {})
+      },
+      include: {
+        payslips: {
+          where: !manage ? { employee: { userId: session.user.id } } : {},
+          include: { employee: { select: { name: true, employeeCode: true } } }
+        }
+      },
       orderBy: [{ year: "desc" }, { month: "desc" }]
     })
   ]);
-  const view = searchParams.view ?? "directory";
-  const manage = can(session.role, "hr:manage");
+  const view = query.view ?? "directory";
   const monthLabel = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
 
   return (
     <div className="space-y-7">
       <PageHeader eyebrow="People operations" title="People & HR" description="Employees, project assignments, attendance, site labour, leave and monthly payroll." />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <div className="flex flex-wrap gap-2">{[["directory", "Employee directory"], ["attendance", "Attendance"], ["leave", "Leave"], ["payroll", "Payroll"]].map(([value, label]) => <Link key={value} href={`/app/hr?view=${value}`} className={buttonVariants({ variant: view === value ? "default" : "outline", size: "sm" })}>{label}</Link>)}</div>
 
       {view === "directory" ? (

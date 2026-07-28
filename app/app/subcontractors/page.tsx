@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 import { cn, enumLabel, money } from "@/lib/utils";
 
 export const metadata = { title: "Subcontractors" };
@@ -22,20 +22,23 @@ export const metadata = { title: "Subcontractors" };
 export default async function SubcontractorsPage({
   searchParams
 }: {
-  searchParams: { error?: string; success?: string; view?: string };
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
   const session = await requireSession("subcontractors:view");
+  const query = await searchParams;
+  const projectIds = await accessibleProjectIds(session);
+  const boundProjectScope = projectIds !== undefined ? { projectId: { in: projectIds } } : {};
   const [subcontractors, workOrders, projects] = await Promise.all([
     prisma.subcontractor.findMany({
       where: { organizationId: session.organizationId },
       include: {
-        workOrders: { where: { status: { not: "CANCELLED" } }, select: { id: true, value: true } },
-        bills: { where: { status: { not: "VOID" } }, select: { amount: true, paidAmount: true } }
+        workOrders: { where: { ...boundProjectScope, status: { not: "CANCELLED" } }, select: { id: true, value: true } },
+        bills: { where: { ...boundProjectScope, status: { not: "VOID" } }, select: { amount: true, paidAmount: true } }
       },
       orderBy: { name: "asc" }
     }),
     prisma.workOrder.findMany({
-      where: { organizationId: session.organizationId },
+      where: { organizationId: session.organizationId, ...boundProjectScope },
       include: {
         project: { select: { name: true, code: true } },
         milestone: { select: { name: true } },
@@ -45,18 +48,18 @@ export default async function SubcontractorsPage({
       orderBy: { createdAt: "desc" }
     }),
     prisma.project.findMany({
-      where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] } },
+      where: { organizationId: session.organizationId, status: { in: ["PLANNING", "ACTIVE"] }, ...(projectIds !== undefined ? { id: { in: projectIds } } : {}) },
       include: { milestones: { where: { status: { not: "INVOICED" } }, select: { id: true, name: true } } },
       orderBy: { name: "asc" }
     })
   ]);
-  const view = searchParams.view ?? "work-orders";
+  const view = query.view ?? "work-orders";
   const manage = can(session.role, "subcontractors:manage");
 
   return (
     <div className="space-y-7">
       <PageHeader eyebrow="Trade partners" title="Subcontractors" description="Trade directory, work orders, milestone linkage and billed-versus-paid control." />
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <div className="flex gap-2"><Link href="/app/subcontractors?view=work-orders" className={buttonVariants({ variant: view === "work-orders" ? "default" : "outline", size: "sm" })}>Work orders</Link><Link href="/app/subcontractors?view=directory" className={buttonVariants({ variant: view === "directory" ? "default" : "outline", size: "sm" })}>Directory</Link></div>
 
       {view === "work-orders" ? (

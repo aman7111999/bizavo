@@ -13,8 +13,9 @@ import { requireSession } from "@/lib/session";
 
 export const metadata = { title: "New project" };
 
-export default async function NewProjectPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function NewProjectPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   await requireSession("projects:manage");
+  const query = await searchParams;
   return (
     <div className="mx-auto max-w-4xl space-y-7">
       <PageHeader
@@ -23,7 +24,7 @@ export default async function NewProjectPage({ searchParams }: { searchParams: {
         description="A linked site store will be created automatically for material receipts and consumption."
         action={<Link href="/app/projects" className={buttonVariants({ variant: "outline" })}><ArrowLeft className="h-4 w-4" />Back</Link>}
       />
-      <AlertMessage error={searchParams.error} />
+      <AlertMessage error={query.error} />
       <Card>
         <CardContent className="p-6">
           <form action={createProject} className="grid gap-5 sm:grid-cols-2">

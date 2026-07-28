@@ -49,7 +49,6 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "inventory:view",
     "subcontractors:view",
     "subcontractors:manage",
-    "hr:view",
     "finance:view"
   ],
   SITE_ENGINEER: [
@@ -80,7 +79,6 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "procurement:view",
     "inventory:view",
     "subcontractors:view",
-    "hr:view",
     "finance:view",
     "finance:manage"
   ],

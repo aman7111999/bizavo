@@ -16,7 +16,9 @@ export type Permission =
   | "finance:view"
   | "finance:manage"
   | "landing:manage"
-  | "members:manage";
+  | "members:manage"
+  | "subscription:view"
+  | "subscription:manage";
 
 const all: Permission[] = [
   "dashboard:view",
@@ -34,12 +36,14 @@ const all: Permission[] = [
   "finance:view",
   "finance:manage",
   "landing:manage",
-  "members:manage"
+  "members:manage",
+  "subscription:view",
+  "subscription:manage"
 ];
 
 export const rolePermissions: Record<OrgRole, Permission[]> = {
   OWNER: all,
-  ADMIN: all,
+  ADMIN: all.filter((permission) => permission !== "subscription:manage"),
   PROJECT_MANAGER: [
     "dashboard:view",
     "projects:view",
@@ -80,7 +84,8 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "inventory:view",
     "subcontractors:view",
     "finance:view",
-    "finance:manage"
+    "finance:manage",
+    "subscription:view"
   ],
   VIEWER: [
     "dashboard:view",

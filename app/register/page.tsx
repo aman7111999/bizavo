@@ -36,7 +36,14 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
     if (duplicate) redirect(`/register?error=${encodeURIComponent("An account with that email already exists.")}`);
     const slugExists = await prisma.organization.findUnique({ where: { slug: parsed.data.slug } });
     if (slugExists) redirect(`/register?error=${encodeURIComponent("That workspace URL is already taken.")}`);
+    const defaultPlan = await prisma.subscriptionPlan.findFirst({
+      where: { active: true, isDefault: true },
+      orderBy: { createdAt: "asc" }
+    });
+    if (!defaultPlan) redirect(`/register?error=${encodeURIComponent("Workspace provisioning is temporarily unavailable. Please contact Bizavo support.")}`);
     const passwordHash = await hash(parsed.data.password, 12);
+    const startedAt = new Date();
+    const trialEndsAt = new Date(startedAt.getTime() + defaultPlan.trialDays * 24 * 60 * 60 * 1000);
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: { name: parsed.data.name, email: parsed.data.email, passwordHash }
@@ -47,6 +54,24 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
           slug: parsed.data.slug,
           industry: "CONSTRUCTION",
           memberships: { create: { userId: user.id, role: "OWNER" } },
+          subscription: {
+            create: {
+              planId: defaultPlan.id,
+              status: "TRIAL",
+              billingCycle: "MONTHLY",
+              startedAt,
+              currentPeriodStart: startedAt,
+              currentPeriodEnd: trialEndsAt,
+              trialEndsAt
+            }
+          },
+          billingProfile: {
+            create: {
+              legalName: parsed.data.organizationName,
+              billingEmail: parsed.data.email,
+              country: "India"
+            }
+          },
           landingPage: {
             create: {
               heroTitle: `Building with ${parsed.data.organizationName}`,

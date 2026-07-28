@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { auth } from "@/auth";
+import { can, projectRestrictedRoles } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.organizationId) return new NextResponse("Unauthorized", { status: 401 });
+  if (!session?.organizationId || !can(session.role, "projects:view")) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+  const { id } = await params;
   const document = await prisma.projectDocument.findFirst({
-    where: { id: params.id, organizationId: session.organizationId }
+    where: {
+      id,
+      organizationId: session.organizationId,
+      ...(projectRestrictedRoles.includes(session.role)
+        ? { project: { members: { some: { membershipId: session.membershipId } } } }
+        : {})
+    }
   });
   if (!document) return new NextResponse("Not found", { status: 404 });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

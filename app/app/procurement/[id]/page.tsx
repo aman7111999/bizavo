@@ -14,19 +14,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { accessibleProjectIds, requireSession } from "@/lib/session";
 import { enumLabel, money, number, shortDate } from "@/lib/utils";
 
 export default async function PurchaseOrderPage({
   params,
   searchParams
 }: {
-  params: { id: string };
-  searchParams: { error?: string; success?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const session = await requireSession("procurement:view");
+  const route = await params;
+  const query = await searchParams;
+  const projectIds = await accessibleProjectIds(session);
   const po = await prisma.purchaseOrder.findFirst({
-    where: { id: params.id, organizationId: session.organizationId },
+    where: {
+      id: route.id,
+      organizationId: session.organizationId,
+      ...(projectIds !== undefined ? { projectId: { in: projectIds } } : {})
+    },
     include: {
       project: true,
       vendor: true,
@@ -37,7 +44,11 @@ export default async function PurchaseOrderPage({
   });
   if (!po) return <EmptyState icon={PackageCheck} title="Purchase order not found" description="It may have been removed or belongs to another organization." />;
   const locations = await prisma.inventoryLocation.findMany({
-    where: { organizationId: session.organizationId, active: true },
+    where: {
+      organizationId: session.organizationId,
+      active: true,
+      ...(projectIds !== undefined ? { projectId: po.projectId } : {})
+    },
     orderBy: { name: "asc" }
   });
   const canApprove = can(session.role, "procurement:approve") && po.status === "REQUESTED";
@@ -49,7 +60,7 @@ export default async function PurchaseOrderPage({
         <Link href="/app/procurement" className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Procurement</Link>
         <PageHeader eyebrow={po.poNumber} title={po.vendor.name} description={`${po.project.code} · ${po.project.name}`} action={<Badge variant={po.status === "APPROVED" || po.status === "RECEIVED" ? "success" : po.status === "REJECTED" ? "destructive" : "warning"}>{enumLabel(po.status)}</Badge>} />
       </div>
-      <AlertMessage error={searchParams.error} success={searchParams.success} />
+      <AlertMessage error={query.error} success={query.success} />
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Order value</p><p className="mt-2 text-xl font-bold">{money(po.totalAmount, session.currency)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Order date</p><p className="mt-2 text-base font-semibold">{shortDate(po.orderDate)}</p></CardContent></Card>

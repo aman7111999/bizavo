@@ -28,4 +28,12 @@ describe("role permissions", () => {
     expect(can("VIEWER", "projects:manage")).toBe(false);
     expect(can("VIEWER", "inventory:manage")).toBe(false);
   });
+
+  it("separates subscription visibility from billing control", () => {
+    expect(can("OWNER", "subscription:manage")).toBe(true);
+    expect(can("ADMIN", "subscription:view")).toBe(true);
+    expect(can("ADMIN", "subscription:manage")).toBe(false);
+    expect(can("ACCOUNTANT", "subscription:view")).toBe(true);
+    expect(can("VIEWER", "subscription:view")).toBe(false);
+  });
 });

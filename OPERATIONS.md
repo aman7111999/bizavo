@@ -3,7 +3,7 @@
 This handbook separates two responsibilities:
 
 1. **Construction operations inside a customer organization** — projects, procurement, inventory, people and accounting.
-2. **The Bizavo software business** — onboarding customer organizations, support, releases and, later, subscription collection.
+2. **The Bizavo software business** — onboarding customer organizations, plans, subscription collection, support and releases.
 
 Do not mix Bizavo subscription receipts with a customer organization’s client invoices or vendor payments.
 
@@ -153,27 +153,53 @@ Production secrets belong in Vercel and Supabase, never GitHub source. Keep at l
 
 Never ask customers to send passwords, database strings or storage keys. For financial corrections, create an explicit reversal/correction workflow rather than deleting journal history.
 
-## Bizavo subscription billing roadmap
+## Bizavo subscription operations
 
-Customer billing for the Bizavo SaaS should be built as a platform-level module, not inside tenant Finance.
+Customer billing for Bizavo is managed in the platform-level `/control` console. It is deliberately separate from tenant Finance.
 
-Recommended rollout:
+### Initial platform access
 
-1. Decide plans, per-organization base price, included users/storage and trial length.
-2. Add platform models for Plan, Subscription, SubscriptionInvoice, GatewayCustomer and Entitlement.
-3. Use a payment gateway hosted checkout/subscription product; store gateway IDs, never card or UPI credentials.
-4. Process signed webhooks idempotently for activated, paid, failed, cancelled and refunded events.
-5. Add dunning: reminders, grace period and Owner-only read-only mode before suspension.
-6. Keep product entitlements separate from organization roles.
-7. Create a platform operator console for organizations, plan, trial, status, usage, support notes and suspension.
+1. Create a normal Bizavo login using a private operator email.
+2. Add that email to the Vercel `PLATFORM_ADMIN_EMAILS` secret and redeploy.
+3. Open `/control`, then add at least one additional named Super Admin under **Platform access**.
+4. Remove obsolete bootstrap emails from Vercel after database access has been confirmed.
+5. Never grant the public demo account platform access.
 
-Until this exists, manage early customers through a controlled external invoice register. Record organization, plan, billing period, amount, tax invoice, due date, payment date and gateway/bank reference. Do not silently disable a customer; use a written grace-period policy.
+Platform roles:
+
+| Role | Access |
+| --- | --- |
+| Super Admin | Plans, organizations, module overrides, suspension, invoices, payments and platform administrators |
+| Billing | Subscription terms, invoices, payments and customer subscription requests |
+| Support | Read-only platform visibility |
+
+### Customer onboarding and billing
+
+1. New registrations receive the active default plan as a trial, with billing profile and period dates stored automatically.
+2. Open **Control → Organization → Subscription assignment** to confirm plan, cycle, status and renewal period.
+3. Review live seats, projects and storage before reducing limits.
+4. Issue the Bizavo subscription invoice with a unique invoice number, issue/due date, subtotal and tax.
+5. Record money only after it clears the bank, UPI, cheque or cash process. Include the UTR/transaction reference.
+6. Bizavo prevents overpayment in a serializable database transaction and shows the receipt to the customer Owner.
+7. Resolve customer plan/cancel/reactivate requests from the same organization page. “Complete & apply” updates the subscription transactionally.
+8. Use module overrides only for contracted exceptions; reset them to the plan default when the exception ends.
+
+### Past due and suspension
+
+1. Overdue display is derived from the invoice due date.
+2. Mark the subscription Past Due during the written grace period.
+3. Contact the customer Owner and record the decision outside the app until automated email delivery is added.
+4. Only a Super Admin may suspend a workspace, and a reason is mandatory.
+5. Suspension blocks authenticated tenant routes and secure document downloads but retains all data.
+6. After cleared payment, record the receipt, set the subscription Active and reactivate the workspace.
+
+Hosted checkout, automatic card/UPI mandates, signed/idempotent payment-gateway webhooks, automatic tax invoices, refunds and dunning email remain Phase 2. Store gateway customer/subscription IDs only after a provider is chosen; never store card or UPI credentials.
 
 ## Phase 2 priority
 
 1. Bank feeds, reconciliation, reversals/credit notes and accounting period lock.
 2. Statutory payroll, GST/TDS handling and payment/remittance schedules.
-3. Platform subscriptions, entitlements and operator console.
+3. Hosted subscription checkout, signed webhooks, refunds and automated dunning.
 4. Cross-organization account switching and group-company reporting.
 5. Email invitations, password reset, MFA and stronger signup abuse controls.
 6. Inventory reservations, cycle counts, batch/serial tracking and purchase returns.

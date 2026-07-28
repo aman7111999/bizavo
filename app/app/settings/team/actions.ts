@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { fail, ok, text } from "@/lib/action-utils";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { getOrganizationPlanLimits } from "@/lib/subscription";
 
 export async function createTeamInvite(formData: FormData) {
   const session = await requireSession("members:manage");
@@ -21,6 +22,21 @@ export async function createTeamInvite(formData: FormData) {
   }
   if (existingUser?.memberships.length) {
     fail("/app/settings/team", "This account already belongs to another workspace. Cross-workspace switching is planned for Phase 2.");
+  }
+  const [limits, memberCount, pendingInviteCount] = await Promise.all([
+    getOrganizationPlanLimits(session.organizationId),
+    prisma.membership.count({ where: { organizationId: session.organizationId } }),
+    prisma.organizationInvite.count({
+      where: {
+        organizationId: session.organizationId,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+        email: { not: email }
+      }
+    })
+  ]);
+  if (limits && memberCount + pendingInviteCount >= limits.maxUsers) {
+    fail("/app/settings/team", `Your plan allows ${limits.maxUsers} users. Upgrade before inviting another teammate.`);
   }
   const pending = await prisma.organizationInvite.findFirst({
     where: { organizationId: session.organizationId, email, acceptedAt: null }

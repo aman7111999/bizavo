@@ -5,16 +5,173 @@ const prisma = new PrismaClient();
 
 const d = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
+const allCoreModules = ["projects", "procurement", "inventory", "subcontractors", "hr", "finance", "landing"];
+
+async function seedSubscriptionPlans() {
+  await prisma.subscriptionPlan.upsert({
+    where: { code: "STARTER" },
+    update: {
+      name: "Starter",
+      description: "Core project and purchasing controls for a growing contractor.",
+      monthlyPrice: 4999,
+      annualPrice: 49990,
+      maxUsers: 10,
+      maxProjects: 5,
+      maxStorageMb: 5120,
+      modules: ["projects", "procurement", "inventory", "landing"],
+      active: true,
+      isDefault: true
+    },
+    create: {
+      code: "STARTER",
+      name: "Starter",
+      description: "Core project and purchasing controls for a growing contractor.",
+      monthlyPrice: 4999,
+      annualPrice: 49990,
+      maxUsers: 10,
+      maxProjects: 5,
+      maxStorageMb: 5120,
+      modules: ["projects", "procurement", "inventory", "landing"],
+      active: true,
+      isDefault: true
+    }
+  });
+  const growth = await prisma.subscriptionPlan.upsert({
+    where: { code: "GROWTH" },
+    update: {
+      name: "Growth",
+      description: "Full construction operations for multi-project teams.",
+      monthlyPrice: 12999,
+      annualPrice: 129990,
+      maxUsers: 40,
+      maxProjects: 25,
+      maxStorageMb: 25600,
+      modules: allCoreModules,
+      active: true
+    },
+    create: {
+      code: "GROWTH",
+      name: "Growth",
+      description: "Full construction operations for multi-project teams.",
+      monthlyPrice: 12999,
+      annualPrice: 129990,
+      maxUsers: 40,
+      maxProjects: 25,
+      maxStorageMb: 25600,
+      modules: allCoreModules,
+      active: true
+    }
+  });
+  await prisma.subscriptionPlan.upsert({
+    where: { code: "ENTERPRISE" },
+    update: {
+      name: "Enterprise",
+      description: "Unlimited construction operations with controlled custom terms.",
+      monthlyPrice: 29999,
+      annualPrice: 299990,
+      trialDays: 30,
+      maxUsers: 250,
+      maxProjects: 250,
+      maxStorageMb: 102400,
+      modules: allCoreModules,
+      active: true
+    },
+    create: {
+      code: "ENTERPRISE",
+      name: "Enterprise",
+      description: "Unlimited construction operations with controlled custom terms.",
+      monthlyPrice: 29999,
+      annualPrice: 299990,
+      trialDays: 30,
+      maxUsers: 250,
+      maxProjects: 250,
+      maxStorageMb: 102400,
+      modules: allCoreModules,
+      active: true
+    }
+  });
+  return growth;
+}
+
+async function ensureDemoSubscription(organizationId: string, ownerId: string, growthPlanId: string) {
+  const subscription = await prisma.organizationSubscription.upsert({
+    where: { organizationId },
+    update: {},
+    create: {
+      organizationId,
+      planId: growthPlanId,
+      status: "ACTIVE",
+      billingCycle: "ANNUAL",
+      startedAt: d("2026-07-01"),
+      currentPeriodStart: d("2026-07-01"),
+      currentPeriodEnd: d("2027-06-30")
+    }
+  });
+  await prisma.organizationBillingProfile.upsert({
+    where: { organizationId },
+    update: {},
+    create: {
+      organizationId,
+      legalName: "Apex Buildcon",
+      billingEmail: "owner@demo.bizavo.in",
+      billingPhone: "+91 22 4000 8800",
+      taxId: "27AABCA1234A1Z5",
+      city: "Mumbai",
+      state: "Maharashtra",
+      country: "India"
+    }
+  });
+  const invoice = await prisma.subscriptionInvoice.upsert({
+    where: { invoiceNumber: "BIZ-2026-0001" },
+    update: {},
+    create: {
+      organizationId,
+      subscriptionId: subscription.id,
+      invoiceNumber: "BIZ-2026-0001",
+      issueDate: d("2026-07-01"),
+      dueDate: d("2026-07-10"),
+      subtotal: 129990,
+      taxAmount: 23398.2,
+      totalAmount: 153388.2,
+      paidAmount: 153388.2,
+      status: "PAID",
+      notes: "Growth annual subscription"
+    }
+  });
+  const payment = await prisma.subscriptionPayment.findFirst({
+    where: { invoiceId: invoice.id, reference: "DEMO-SUBSCRIPTION-2026" }
+  });
+  if (!payment) {
+    await prisma.subscriptionPayment.create({
+      data: {
+        organizationId,
+        invoiceId: invoice.id,
+        paymentDate: d("2026-07-03"),
+        amount: 153388.2,
+        method: "Bank transfer",
+        reference: "DEMO-SUBSCRIPTION-2026",
+        notes: "Seeded demonstration payment",
+        recordedById: ownerId
+      }
+    });
+  }
+}
+
 async function main() {
+  const growthPlan = await seedSubscriptionPlans();
   const existing = await prisma.organization.findUnique({ where: { slug: "apex-buildcon" } });
   if (existing) {
-    const engineer = await prisma.user.findUnique({ where: { email: "engineer@demo.bizavo.in" } });
+    const [engineer, owner] = await Promise.all([
+      prisma.user.findUnique({ where: { email: "engineer@demo.bizavo.in" } }),
+      prisma.user.findUnique({ where: { email: "owner@demo.bizavo.in" } })
+    ]);
     if (engineer) {
       await prisma.employee.updateMany({
         where: { organizationId: existing.id, employeeCode: "EMP-001", userId: null },
         data: { userId: engineer.id, email: engineer.email }
       });
     }
+    if (owner) await ensureDemoSubscription(existing.id, owner.id, growthPlan.id);
     console.log("Demo organization already exists; seed skipped.");
     return;
   }
@@ -69,6 +226,7 @@ async function main() {
   });
   const ownerMembership = organization.memberships.find((membership) => membership.userId === owner.id)!;
   const engineerMembership = organization.memberships.find((membership) => membership.userId === engineer.id)!;
+  await ensureDemoSubscription(organization.id, owner.id, growthPlan.id);
 
   const accountSeed = [
     ["1000", "Cash and bank", "ASSET"], ["1100", "Accounts receivable", "ASSET"], ["1300", "Inventory asset", "ASSET"],

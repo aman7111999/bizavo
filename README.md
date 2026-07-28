@@ -19,8 +19,10 @@ The product is intentionally built around connected transactions. A purchase ord
 ### Multi-tenancy and access
 
 - Isolated organizations with an `Industry` enum
+- Platform organization states: Active, Suspended and Archived
 - Owner, Admin, Project Manager, Site Engineer, Procurement, HR, Accountant and Viewer roles
 - Server-side permission checks on pages and mutations
+- Subscription plan entitlements enforced on navigation, pages and server actions
 - Site Engineers see only assigned projects
 - Owner signup, organization creation, expiring/revocable role invite links, role changes and project assignment
 - Every tenant-owned table carries `organizationId`; Supabase-facing tables have RLS enabled
@@ -86,11 +88,24 @@ The product is intentionally built around connected transactions. A purchase ord
 - Enquiry form that creates organization-scoped CRM leads
 - Lead status workflow: New, Contacted, Qualified, Won and Lost
 
+### Bizavo subscriptions and platform control
+
+- Tenant Owner subscription page with live user, project and document-storage usage
+- Database-backed plans, billing cycles, periods, limits and module entitlements
+- Billing profile, subscription invoice/payment history and plan-change requests
+- Separate `/control` console for Bizavo platform administrators
+- Organization search, MRR estimate, receivables and pending request metrics
+- Plan assignment, renewal dates, trial/status control and cancel-at-period-end
+- Per-organization module overrides with server-side enforcement
+- Subscription invoice issue and serializable, overpayment-safe manual receipt posting
+- Organization suspension/reactivation and immutable platform audit events
+- Super Admin, Billing and Support platform roles, separate from tenant roles
+
 ## Phase 1 simplifications
 
 - Auth uses email/password. Invite links are copied manually; transactional email delivery is deferred.
 - One login currently belongs to one organization. Cross-workspace switching for consultants and group-company users is deferred.
-- Bizavo customer subscription billing is separate from each construction company’s accounting and is deferred until pricing and a payment gateway are selected.
+- Bizavo subscriptions support controlled manual invoicing and bank/UPI/cheque/cash receipt recording. Hosted checkout, automatic renewals, signed gateway webhooks, refunds and dunning emails require a selected payment gateway in Phase 2.
 - Payroll covers earnings, deductions and payslips, but not PF, ESI, professional tax or statutory filing.
 - Finance is accrual-based double entry, but GST/TDS returns, bank feeds, reconciliation, credit notes and period closing are deferred.
 - Inventory supports weighted-average valuation. Serial/batch tracking, composite items, barcode scanning, cycle counts and demand forecasting are deferred.
@@ -140,6 +155,7 @@ Set the environment variables:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only key for signed project-document operations |
 | `SUPABASE_STORAGE_BUCKET` | Defaults to `project-documents` |
+| `PLATFORM_ADMIN_EMAILS` | Comma-separated bootstrap login emails allowed into `/control`; never use the public demo account |
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` through a `NEXT_PUBLIC_` variable.
 
@@ -151,6 +167,7 @@ npm run db:seed
 ```
 
 The seed is idempotent for the demo organization and creates three projects, multiple vendors, POs, inventory movements, subcontractors, employees, payroll, invoices, journals and website leads.
+It also creates Starter, Growth and Enterprise plans plus one paid demo subscription invoice. It does not grant the demo login global platform access.
 
 ### Run
 
@@ -187,7 +204,8 @@ npm run build
 1. Import the GitHub repository into Vercel.
 2. Add all environment variables from `.env.example`.
 3. Set `NEXT_PUBLIC_APP_URL` to the production URL.
-4. Deploy from `main`.
+4. Set `PLATFORM_ADMIN_EMAILS` to your private Bizavo operator login, deploy, then save at least two named platform administrators under **Control → Platform access**.
+5. Deploy from `main`.
 
 `vercel.json` runs `prisma migrate deploy` before the production Next.js build, so committed migrations are applied on deployment. Production pushes to `main` trigger new deployments after the Vercel Git integration is connected.
 
@@ -199,4 +217,7 @@ npm run build
 - Project documents are private and opened through short-lived signed URLs after both organization and project-access checks.
 - Payslips are available only to HR managers or the employee account linked to that payslip.
 - Payment posting re-reads the current balance in a serializable transaction to prevent concurrent overpayment.
+- Tenant roles and global platform roles are separate; a customer Owner does not receive `/control` access.
+- The public demo credential is never seeded as a platform administrator.
+- Workspace suspension and plan module restrictions are enforced server-side, including direct document downloads.
 - Database RLS protects tenant-owned tables from direct Supabase API access. Prisma uses the trusted server connection and repeats tenant authorization in the application layer.

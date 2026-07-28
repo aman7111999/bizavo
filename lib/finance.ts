@@ -7,7 +7,7 @@ const activeBillStatuses: BillStatus[] = ["OPEN", "PARTIALLY_PAID", "PAID", "OVE
 export async function getProjectFinancials(organizationId: string, projectIds?: string[]) {
   const projectWhere = {
     organizationId,
-    ...(projectIds?.length ? { id: { in: projectIds } } : {})
+    ...(projectIds !== undefined ? { id: { in: projectIds } } : {})
   };
   const projects = await prisma.project.findMany({
     where: projectWhere,
@@ -27,7 +27,7 @@ export async function getProjectFinancials(organizationId: string, projectIds?: 
     by: ["projectId"],
     where: {
       organizationId,
-      projectId: projectIds?.length ? { in: projectIds } : { not: null }
+      projectId: projectIds !== undefined ? { in: projectIds } : { not: null }
     },
     _sum: { gross: true }
   });

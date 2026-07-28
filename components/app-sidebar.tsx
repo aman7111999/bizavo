@@ -8,6 +8,7 @@ import {
   Building2,
   CircleDollarSign,
   ContactRound,
+  CreditCard,
   FileText,
   HardHat,
   LayoutDashboard,
@@ -18,27 +19,31 @@ import {
 } from "lucide-react";
 import { OrgRole } from "@prisma/client";
 import { can, type Permission } from "@/lib/permissions";
+import { type ModuleKey } from "@/lib/modules";
 import { cn, enumLabel } from "@/lib/utils";
 
-const navItems: { href: string; label: string; icon: typeof LayoutDashboard; permission: Permission }[] = [
+const navItems: { href: string; label: string; icon: typeof LayoutDashboard; permission: Permission; module?: ModuleKey }[] = [
   { href: "/app", label: "Overview", icon: LayoutDashboard, permission: "dashboard:view" },
-  { href: "/app/projects", label: "Projects", icon: Building2, permission: "projects:view" },
-  { href: "/app/procurement", label: "Procurement", icon: ShoppingCart, permission: "procurement:view" },
-  { href: "/app/inventory", label: "Inventory", icon: Boxes, permission: "inventory:view" },
-  { href: "/app/subcontractors", label: "Subcontractors", icon: HardHat, permission: "subcontractors:view" },
-  { href: "/app/hr", label: "People & HR", icon: UsersRound, permission: "hr:view" },
-  { href: "/app/finance", label: "Finance", icon: CircleDollarSign, permission: "finance:view" },
-  { href: "/app/leads", label: "Website leads", icon: ContactRound, permission: "landing:manage" },
-  { href: "/app/settings/landing", label: "Public page", icon: FileText, permission: "landing:manage" },
-  { href: "/app/settings/team", label: "Team & roles", icon: Settings2, permission: "members:manage" }
+  { href: "/app/projects", label: "Projects", icon: Building2, permission: "projects:view", module: "projects" },
+  { href: "/app/procurement", label: "Procurement", icon: ShoppingCart, permission: "procurement:view", module: "procurement" },
+  { href: "/app/inventory", label: "Inventory", icon: Boxes, permission: "inventory:view", module: "inventory" },
+  { href: "/app/subcontractors", label: "Subcontractors", icon: HardHat, permission: "subcontractors:view", module: "subcontractors" },
+  { href: "/app/hr", label: "People & HR", icon: UsersRound, permission: "hr:view", module: "hr" },
+  { href: "/app/finance", label: "Finance", icon: CircleDollarSign, permission: "finance:view", module: "finance" },
+  { href: "/app/leads", label: "Website leads", icon: ContactRound, permission: "landing:manage", module: "landing" },
+  { href: "/app/settings/landing", label: "Public page", icon: FileText, permission: "landing:manage", module: "landing" },
+  { href: "/app/settings/team", label: "Team & roles", icon: Settings2, permission: "members:manage" },
+  { href: "/app/settings/subscription", label: "Subscription", icon: CreditCard, permission: "subscription:view" }
 ];
 
 export function AppSidebar({
   role,
-  organizationName
+  organizationName,
+  enabledModules
 }: {
   role: OrgRole;
   organizationName: string;
+  enabledModules: ModuleKey[];
 }) {
   const pathname = usePathname();
   return (
@@ -58,7 +63,7 @@ export function AppSidebar({
       </div>
       <nav className="scrollbar-subtle mt-4 flex-1 space-y-1 overflow-y-auto px-3">
         {navItems
-          .filter((item) => can(role, item.permission))
+          .filter((item) => can(role, item.permission) && (!item.module || enabledModules.includes(item.module)))
           .map((item) => {
             const active = item.href === "/app" ? pathname === "/app" : pathname.startsWith(item.href);
             const Icon = item.icon;

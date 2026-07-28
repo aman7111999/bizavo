@@ -20,7 +20,8 @@ const registerSchema = z.object({
 
 export const metadata = { title: "Create workspace" };
 
-export default function RegisterPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  const query = await searchParams;
   async function register(formData: FormData) {
     "use server";
     const parsed = registerSchema.safeParse({
@@ -85,7 +86,7 @@ export default function RegisterPage({ searchParams }: { searchParams: { error?:
     <main className="min-h-screen bg-[#f7f9fc] px-5 py-12">
       <div className="mx-auto max-w-2xl">
         <div className="mb-8 text-center"><p className="text-2xl font-bold text-[#071a5c]">Bizavo</p><p className="mt-1 text-xs font-semibold tracking-[0.2em] text-primary">CREATE YOUR CONSTRUCTION OS</p></div>
-        <AlertMessage error={searchParams.error} />
+        <AlertMessage error={query.error} />
         <Card className="mt-5">
           <CardHeader><CardTitle>Create your organization</CardTitle><p className="text-sm text-muted-foreground">You’ll be the Owner and can invite your team after signing in.</p></CardHeader>
           <CardContent><form action={register} className="grid gap-4 sm:grid-cols-2"><FormField label="Your name"><Input name="name" required /></FormField><FormField label="Work email"><Input name="email" type="email" required /></FormField><FormField label="Password"><Input name="password" type="password" minLength={8} required /></FormField><FormField label="Company name"><Input name="organizationName" required /></FormField><FormField label="Workspace URL" hint="bizavo.vercel.app/s/your-company" className="sm:col-span-2"><Input name="slug" placeholder="your-company" pattern="[a-z0-9-]+" required /></FormField><div className="mt-2 flex justify-end gap-3 border-t pt-5 sm:col-span-2"><Link href="/login" className={buttonVariants({ variant: "outline" })}>Back to sign in</Link><Button type="submit">Create workspace</Button></div></form></CardContent>

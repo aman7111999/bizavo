@@ -6,10 +6,11 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: {
-    default: "Bizavo — Construction OS",
+    default: "Bizavo — One connected system for every business",
     template: "%s · Bizavo"
   },
-  description: "One connected system for construction operations, procurement, workforce and finance."
+  description: "Run customers, projects, people, inventory, payroll, finance and documents from one connected business platform.",
+  metadataBase: new URL("https://bizavo.vercel.app")
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

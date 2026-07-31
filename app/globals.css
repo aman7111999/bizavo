@@ -33,6 +33,10 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   ::selection {
     background: rgba(76, 110, 245, 0.2);
   }

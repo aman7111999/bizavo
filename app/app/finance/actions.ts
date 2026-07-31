@@ -3,6 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { accountIds, postJournal } from "@/lib/accounting";
+import { createPaymentReceipt } from "@/lib/business-documents";
 import { dateValue, fail, numberValue, ok, optionalText, text } from "@/lib/action-utils";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
@@ -65,6 +66,9 @@ export async function recordClientPayment(formData: FormData) {
           id: invoiceId,
           organizationId: session.organizationId,
           status: { in: ["ISSUED", "PARTIALLY_PAID", "OVERDUE"] }
+        },
+        include: {
+          project: { select: { clientName: true, clientEmail: true, clientPhone: true, location: true } }
         }
       });
       const balance = invoice ? Number(invoice.totalAmount) - Number(invoice.paidAmount) : 0;
@@ -86,6 +90,13 @@ export async function recordClientPayment(formData: FormData) {
           paidAmount,
           status: paidAmount >= Number(invoice.totalAmount) - 0.01 ? "PAID" : "PARTIALLY_PAID"
         }
+      });
+      await createPaymentReceipt(tx, {
+        organizationId: session.organizationId,
+        currency: session.currency,
+        createdById: session.user.id,
+        payment,
+        invoice
       });
       const accounts = await accountIds(tx, session.organizationId, ["1000", "1100"]);
       await postJournal(tx, {
@@ -111,6 +122,7 @@ export async function recordClientPayment(formData: FormData) {
     fail("/app/finance?view=invoices", "Enter a valid payment not exceeding the invoice balance.");
   }
   revalidatePath("/app/finance");
+  revalidatePath("/app/documents");
   revalidatePath("/app");
   revalidatePath(`/app/projects/${projectId}`);
   ok("/app/finance?view=invoices", "Client payment recorded.");

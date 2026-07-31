@@ -7,6 +7,7 @@ export type ModuleKey =
   | "subcontractors"
   | "hr"
   | "finance"
+  | "documents"
   | "landing"
   | "equipment"
   | "safety"
@@ -22,14 +23,15 @@ export const industryModules: Record<Industry, ModuleKey[]> = {
     "subcontractors",
     "hr",
     "finance",
+    "documents",
     "landing"
   ],
-  HOSPITAL: ["hr", "finance", "landing"],
-  GYM: ["hr", "finance", "landing"],
-  RETAIL: ["procurement", "inventory", "hr", "finance", "landing"],
-  PROFESSIONAL_SERVICES: ["projects", "hr", "finance", "landing"],
-  MANUFACTURING: ["procurement", "inventory", "hr", "finance", "landing"],
-  OTHER: ["projects", "hr", "finance", "landing"]
+  HOSPITAL: ["hr", "finance", "documents", "landing"],
+  GYM: ["hr", "finance", "documents", "landing"],
+  RETAIL: ["procurement", "inventory", "hr", "finance", "documents", "landing"],
+  PROFESSIONAL_SERVICES: ["projects", "hr", "finance", "documents", "landing"],
+  MANUFACTURING: ["procurement", "inventory", "hr", "finance", "documents", "landing"],
+  OTHER: ["projects", "hr", "finance", "documents", "landing"]
 };
 
 export const futureConstructionModules: {

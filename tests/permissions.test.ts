@@ -29,6 +29,13 @@ describe("role permissions", () => {
     expect(can("VIEWER", "inventory:manage")).toBe(false);
   });
 
+  it("keeps customer document delivery with finance operators", () => {
+    expect(can("ACCOUNTANT", "documents:manage")).toBe(true);
+    expect(can("PROJECT_MANAGER", "documents:view")).toBe(true);
+    expect(can("PROJECT_MANAGER", "documents:manage")).toBe(false);
+    expect(can("SITE_ENGINEER", "documents:view")).toBe(false);
+  });
+
   it("separates subscription visibility from billing control", () => {
     expect(can("OWNER", "subscription:manage")).toBe(true);
     expect(can("ADMIN", "subscription:view")).toBe(true);

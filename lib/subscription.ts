@@ -12,6 +12,7 @@ export const controllableModules: { key: ModuleKey; label: string; description: 
   { key: "subcontractors", label: "Subcontractors", description: "Work orders, billing and payables" },
   { key: "hr", label: "People & HR", description: "Employees, attendance, leave and payroll" },
   { key: "finance", label: "Finance", description: "Invoices, payables, payments and reports" },
+  { key: "documents", label: "Documents", description: "Receipts, quotes, PDFs and customer delivery" },
   { key: "landing", label: "Public page", description: "Company page, showcase and website leads" }
 ];
 
@@ -29,6 +30,8 @@ const permissionModules: Partial<Record<Permission, ModuleKey>> = {
   "hr:manage": "hr",
   "finance:view": "finance",
   "finance:manage": "finance",
+  "documents:view": "documents",
+  "documents:manage": "documents",
   "landing:manage": "landing"
 };
 

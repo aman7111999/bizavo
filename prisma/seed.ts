@@ -1,11 +1,12 @@
 import { hash } from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { createDocumentNumber } from "../lib/business-documents";
 
 const prisma = new PrismaClient();
 
 const d = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
-const allCoreModules = ["projects", "procurement", "inventory", "subcontractors", "hr", "finance", "landing"];
+const allCoreModules = ["projects", "procurement", "inventory", "subcontractors", "hr", "finance", "documents", "landing"];
 
 async function seedSubscriptionPlans() {
   await prisma.subscriptionPlan.upsert({
@@ -18,7 +19,7 @@ async function seedSubscriptionPlans() {
       maxUsers: 10,
       maxProjects: 5,
       maxStorageMb: 5120,
-      modules: ["projects", "procurement", "inventory", "landing"],
+      modules: ["projects", "procurement", "inventory", "documents", "landing"],
       active: true,
       isDefault: true
     },
@@ -31,7 +32,7 @@ async function seedSubscriptionPlans() {
       maxUsers: 10,
       maxProjects: 5,
       maxStorageMb: 5120,
-      modules: ["projects", "procurement", "inventory", "landing"],
+      modules: ["projects", "procurement", "inventory", "documents", "landing"],
       active: true,
       isDefault: true
     }
@@ -157,6 +158,54 @@ async function ensureDemoSubscription(organizationId: string, ownerId: string, g
   }
 }
 
+async function ensureDemoPaymentReceipts(organizationId: string, ownerId: string, currency = "INR") {
+  const payments = await prisma.clientPayment.findMany({
+    where: { organizationId },
+    include: {
+      invoice: {
+        include: {
+          project: { select: { id: true, clientName: true, clientEmail: true, clientPhone: true, location: true } }
+        }
+      }
+    }
+  });
+  for (const payment of payments) {
+    await prisma.businessDocument.upsert({
+      where: { clientPaymentId: payment.id },
+      update: {},
+      create: {
+        organizationId,
+        projectId: payment.invoice.projectId,
+        clientPaymentId: payment.id,
+        type: "PAYMENT_RECEIPT",
+        status: "ISSUED",
+        documentNumber: createDocumentNumber("PAYMENT_RECEIPT", payment.id, payment.paymentDate),
+        recipientName: payment.invoice.project.clientName,
+        recipientEmail: payment.invoice.project.clientEmail,
+        recipientPhone: payment.invoice.project.clientPhone,
+        billingAddress: payment.invoice.project.location,
+        issueDate: payment.paymentDate,
+        currency,
+        subtotal: payment.amount,
+        totalAmount: payment.amount,
+        paymentMethod: payment.method,
+        paymentReference: payment.reference,
+        notes: `Payment received against ${payment.invoice.invoiceNumber}.`,
+        createdById: ownerId,
+        items: {
+          create: {
+            description: `Payment received against invoice ${payment.invoice.invoiceNumber}`,
+            quantity: 1,
+            unit: "payment",
+            unitPrice: payment.amount,
+            lineTotal: payment.amount
+          }
+        }
+      }
+    });
+  }
+}
+
 async function main() {
   const growthPlan = await seedSubscriptionPlans();
   const existing = await prisma.organization.findUnique({ where: { slug: "apex-buildcon" } });
@@ -171,7 +220,10 @@ async function main() {
         data: { userId: engineer.id, email: engineer.email }
       });
     }
-    if (owner) await ensureDemoSubscription(existing.id, owner.id, growthPlan.id);
+    if (owner) {
+      await ensureDemoSubscription(existing.id, owner.id, growthPlan.id);
+      await ensureDemoPaymentReceipts(existing.id, owner.id, existing.currency);
+    }
     console.log("Demo organization already exists; seed skipped.");
     return;
   }
@@ -536,6 +588,7 @@ async function main() {
   for (const payment of [{ payment: clientPayment1, projectId: skyline.id }, { payment: clientPayment2, projectId: skyline.id }, { payment: clientPayment3, projectId: orion.id }]) {
     await journal({ date: payment.payment.paymentDate, description: `Client payment · ${payment.payment.reference}`, source: "CLIENT_PAYMENT", sourceId: payment.payment.id, lines: [{ code: "1000", debit: Number(payment.payment.amount) }, { code: "1100", projectId: payment.projectId, credit: Number(payment.payment.amount) }] });
   }
+  await ensureDemoPaymentReceipts(organization.id, owner.id, organization.currency);
   const expense1 = await prisma.expense.create({ data: { organizationId: organization.id, projectId: skyline.id, accountId: accounts.get("5300")!, expenseDate: d("2026-07-12"), amount: 84500, vendorName: "Mumbai Crane Services", description: "Mobile crane hire – 2 shifts", paymentMethod: "Bank transfer", reference: "MCS-0712" } });
   const expense2 = await prisma.expense.create({ data: { organizationId: organization.id, projectId: orion.id, accountId: accounts.get("5300")!, expenseDate: d("2026-07-15"), amount: 46200, vendorName: "Rapid Testing Labs", description: "Concrete cube testing", paymentMethod: "Bank transfer", reference: "RTL-0715" } });
   await journal({ date: expense1.expenseDate, description: `Expense · ${expense1.description}`, source: "EXPENSE", sourceId: expense1.id, lines: [{ code: "5300", projectId: skyline.id, debit: 84500 }, { code: "1000", credit: 84500 }] });

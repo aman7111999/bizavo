@@ -13,11 +13,11 @@ export default async function ApplicationLayout({ children }: { children: React.
     platformAccessForUser(session.user.id, session.user.email)
   ]);
   return (
-    <div className="flex min-h-screen bg-[#f7f9fc]">
+    <div className="flex min-h-screen bg-[#f5f7fb]">
       <AppSidebar role={session.role} organizationName={session.organizationName} enabledModules={enabledModules} />
       <div className="min-w-0 flex-1">
-        <AppTopbar userName={session.user.name} organizationName={session.organizationName} platformAdmin={Boolean(platformRole)} />
-        <main className="mx-auto max-w-[1540px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
+        <AppTopbar userName={session.user.name} organizationName={session.organizationName} role={session.role} platformAdmin={Boolean(platformRole)} />
+        <main className="mx-auto max-w-[1540px] px-4 pb-24 pt-7 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
       </div>
       <MobileNav role={session.role} enabledModules={enabledModules} />
     </div>

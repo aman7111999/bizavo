@@ -202,6 +202,30 @@ enum SubscriptionRequestStatus {
   COMPLETED
 }
 
+enum BusinessDocumentType {
+  PAYMENT_RECEIPT
+  SALES_RECEIPT
+  QUOTATION
+  PROFORMA_INVOICE
+}
+
+enum BusinessDocumentStatus {
+  DRAFT
+  ISSUED
+  VOID
+}
+
+enum CommunicationChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum CommunicationStatus {
+  READY
+  SENT
+  FAILED
+}
+
 model User {
   id             String                 @id @default(cuid())
   name           String?
@@ -301,6 +325,8 @@ model Organization {
   subscriptionPayments SubscriptionPayment[]
   subscriptionRequests SubscriptionRequest[]
   platformAuditLogs    PlatformAuditLog[]
+  businessDocuments    BusinessDocument[]
+  documentShares       DocumentShare[]
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
 }
@@ -365,6 +391,7 @@ model Project {
   vendorBills         VendorBill[]
   expenses            Expense[]
   stockMovements      StockMovement[]
+  businessDocuments   BusinessDocument[]
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
 
@@ -951,16 +978,83 @@ model ClientInvoice {
 }
 
 model ClientPayment {
-  id             String        @id @default(cuid())
+  id                String             @id @default(cuid())
+  organizationId    String
+  invoiceId         String
+  paymentDate       DateTime
+  amount            Decimal            @db.Decimal(16, 2)
+  method            String
+  reference         String?
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice           ClientInvoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  businessDocuments BusinessDocument[]
+  createdAt         DateTime           @default(now())
+}
+
+model BusinessDocument {
+  id               String                 @id @default(cuid())
+  organizationId   String
+  projectId        String?
+  clientPaymentId  String?                @unique
+  type             BusinessDocumentType
+  status           BusinessDocumentStatus @default(ISSUED)
+  documentNumber   String
+  recipientName    String
+  recipientEmail   String?
+  recipientPhone   String?
+  billingAddress   String?
+  issueDate        DateTime
+  currency         String                 @default("INR")
+  subtotal         Decimal                @db.Decimal(16, 2)
+  taxAmount        Decimal                @default(0) @db.Decimal(16, 2)
+  totalAmount      Decimal                @db.Decimal(16, 2)
+  paymentMethod    String?
+  paymentReference String?
+  notes            String?
+  createdById      String
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project          Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  clientPayment    ClientPayment?         @relation(fields: [clientPaymentId], references: [id], onDelete: SetNull)
+  items            BusinessDocumentItem[]
+  shares           DocumentShare[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  @@unique([organizationId, documentNumber])
+  @@index([organizationId, type, issueDate])
+}
+
+model BusinessDocumentItem {
+  id          String           @id @default(cuid())
+  documentId  String
+  description String
+  quantity    Decimal          @default(1) @db.Decimal(14, 3)
+  unit        String           @default("unit")
+  unitPrice   Decimal          @db.Decimal(16, 2)
+  taxPercent  Decimal          @default(0) @db.Decimal(5, 2)
+  lineTotal   Decimal          @db.Decimal(16, 2)
+  document    BusinessDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model DocumentShare {
+  id             String               @id @default(cuid())
   organizationId String
-  invoiceId      String
-  paymentDate    DateTime
-  amount         Decimal       @db.Decimal(16, 2)
-  method         String
-  reference      String?
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invoice        ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  createdAt      DateTime      @default(now())
+  documentId     String
+  tokenHash      String               @unique
+  channel        CommunicationChannel
+  recipient      String
+  status         CommunicationStatus  @default(READY)
+  providerId     String?
+  errorMessage   String?
+  expiresAt      DateTime
+  sentAt         DateTime?
+  createdById    String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document       BusinessDocument     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([documentId, createdAt])
 }
 
 model VendorBill {

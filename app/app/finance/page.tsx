@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { HandCoins, Landmark, ReceiptIndianRupee, Scale, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
+import { FileDown, HandCoins, Landmark, ReceiptIndianRupee, Scale, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
 import { createExpense, issueClientInvoice, recordClientPayment, recordPayrollPayment, recordVendorPayment } from "@/app/app/finance/actions";
 import { AlertMessage } from "@/components/alert-message";
 import { EmptyState } from "@/components/empty-state";
@@ -65,7 +65,8 @@ export default async function FinancePage({
             invoiceNumber: true,
             project: { select: { name: true } }
           }
-        }
+        },
+        businessDocuments: { select: { id: true, documentNumber: true }, take: 1 }
       },
       orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
       take: 100
@@ -168,8 +169,8 @@ export default async function FinancePage({
               <CardContent>
                 {clientPayments.length ? (
                   <Table>
-                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Invoice / project</TableHead><TableHead>Method / reference</TableHead><TableHead className="text-right">Received</TableHead></TableRow></TableHeader>
-                    <TableBody>{clientPayments.map((payment) => <TableRow key={payment.id}><TableCell>{shortDate(payment.paymentDate)}</TableCell><TableCell><p className="font-medium">{payment.invoice.invoiceNumber}</p><p className="text-xs text-muted-foreground">{payment.invoice.project.name}</p></TableCell><TableCell><p>{payment.method}</p><p className="text-xs text-muted-foreground">{payment.reference ?? "No reference"}</p></TableCell><TableCell className="text-right font-semibold text-emerald-700">{money(payment.amount, session.currency)}</TableCell></TableRow>)}</TableBody>
+                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Invoice / project</TableHead><TableHead>Method / reference</TableHead><TableHead>Receipt</TableHead><TableHead className="text-right">Received</TableHead></TableRow></TableHeader>
+                    <TableBody>{clientPayments.map((payment) => <TableRow key={payment.id}><TableCell>{shortDate(payment.paymentDate)}</TableCell><TableCell><p className="font-medium">{payment.invoice.invoiceNumber}</p><p className="text-xs text-muted-foreground">{payment.invoice.project.name}</p></TableCell><TableCell><p>{payment.method}</p><p className="text-xs text-muted-foreground">{payment.reference ?? "No reference"}</p></TableCell><TableCell>{payment.businessDocuments[0] ? <a href={`/api/business-documents/${payment.businessDocuments[0].id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"><FileDown className="h-3.5 w-3.5" />{payment.businessDocuments[0].documentNumber}</a> : <span className="text-xs text-muted-foreground">Pending</span>}</TableCell><TableCell className="text-right font-semibold text-emerald-700">{money(payment.amount, session.currency)}</TableCell></TableRow>)}</TableBody>
                   </Table>
                 ) : <EmptyState icon={ReceiptIndianRupee} title="No client payments" description="Receipts recorded against client invoices will appear here." />}
               </CardContent>

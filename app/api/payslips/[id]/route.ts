@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { organizationCanUseModule } from "@/lib/subscription";
-import { money } from "@/lib/utils";
+
+function pdfMoney(value: number | string | { toString(): string }) {
+  return `INR ${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))}`;
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -58,13 +61,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   page.drawRectangle({ x: 45, y: 365, width: 505, height: 130, color: rgb(0.97, 0.98, 1) });
   page.drawText("EARNINGS", { x: 65, y: 470, size: 9, font: bold, color: blue });
   page.drawText("Basic salary", { x: 65, y: 438, size: 10, font: regular, color: navy });
-  page.drawText(money(payslip.basic), { x: 245, y: 438, size: 10, font: bold, color: navy });
+  page.drawText(pdfMoney(payslip.basic), { x: 245, y: 438, size: 10, font: bold, color: navy });
   page.drawText("Allowances", { x: 65, y: 412, size: 10, font: regular, color: navy });
-  page.drawText(money(payslip.allowances), { x: 245, y: 412, size: 10, font: bold, color: navy });
+  page.drawText(pdfMoney(payslip.allowances), { x: 245, y: 412, size: 10, font: bold, color: navy });
   page.drawText("Deductions", { x: 65, y: 386, size: 10, font: regular, color: navy });
-  page.drawText(`-${money(payslip.deductions)}`, { x: 245, y: 386, size: 10, font: bold, color: rgb(0.75, 0.15, 0.15) });
+  page.drawText(`-${pdfMoney(payslip.deductions)}`, { x: 245, y: 386, size: 10, font: bold, color: rgb(0.75, 0.15, 0.15) });
   page.drawText("NET PAY", { x: 365, y: 438, size: 9, font: bold, color: muted });
-  page.drawText(money(payslip.netPay), { x: 365, y: 405, size: 18, font: bold, color: navy });
+  page.drawText(pdfMoney(payslip.netPay), { x: 365, y: 405, size: 18, font: bold, color: navy });
   page.drawText("This payslip was generated electronically by Bizavo.", { x: 45, y: 80, size: 8, font: regular, color: muted });
   const bytes = await pdf.save();
   const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;

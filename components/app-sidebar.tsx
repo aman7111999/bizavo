@@ -2,39 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Boxes,
-  BriefcaseBusiness,
-  Building2,
-  CircleDollarSign,
-  ContactRound,
-  CreditCard,
-  FileText,
-  HardHat,
-  LayoutDashboard,
-  Layers3,
-  Settings2,
-  ShoppingCart,
-  UsersRound
-} from "lucide-react";
+import { Layers3, Sparkles } from "lucide-react";
 import { OrgRole } from "@prisma/client";
-import { can, type Permission } from "@/lib/permissions";
+import { appNavigation } from "@/lib/app-navigation";
+import { can } from "@/lib/permissions";
 import { type ModuleKey } from "@/lib/modules";
 import { cn, enumLabel } from "@/lib/utils";
-
-const navItems: { href: string; label: string; icon: typeof LayoutDashboard; permission: Permission; module?: ModuleKey }[] = [
-  { href: "/app", label: "Overview", icon: LayoutDashboard, permission: "dashboard:view" },
-  { href: "/app/projects", label: "Projects", icon: Building2, permission: "projects:view", module: "projects" },
-  { href: "/app/procurement", label: "Procurement", icon: ShoppingCart, permission: "procurement:view", module: "procurement" },
-  { href: "/app/inventory", label: "Inventory", icon: Boxes, permission: "inventory:view", module: "inventory" },
-  { href: "/app/subcontractors", label: "Subcontractors", icon: HardHat, permission: "subcontractors:view", module: "subcontractors" },
-  { href: "/app/hr", label: "People & HR", icon: UsersRound, permission: "hr:view", module: "hr" },
-  { href: "/app/finance", label: "Finance", icon: CircleDollarSign, permission: "finance:view", module: "finance" },
-  { href: "/app/leads", label: "Website leads", icon: ContactRound, permission: "landing:manage", module: "landing" },
-  { href: "/app/settings/landing", label: "Public page", icon: FileText, permission: "landing:manage", module: "landing" },
-  { href: "/app/settings/team", label: "Team & roles", icon: Settings2, permission: "members:manage" },
-  { href: "/app/settings/subscription", label: "Subscription", icon: CreditCard, permission: "subscription:view" }
-];
 
 export function AppSidebar({
   role,
@@ -47,49 +20,40 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   return (
-    <aside className="hidden h-screen w-[252px] shrink-0 flex-col bg-[#071a5c] text-white lg:flex">
-      <div className="flex h-20 items-center gap-3 border-b border-white/10 px-5">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-400 to-cyan-300 text-[#071a5c]">
+    <aside className="hidden h-screen w-[268px] shrink-0 flex-col border-r border-slate-200/80 bg-[#0f1930] text-white lg:flex">
+      <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-[#5d83ff] to-[#67e8f9] text-[#0f1930] shadow-lg shadow-blue-950/30">
           <Layers3 className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-lg font-bold">Bizavo</p>
-          <p className="text-[9px] font-semibold tracking-[0.22em] text-blue-200">ONE CONNECTED SYSTEM</p>
+          <p className="text-[17px] font-bold tracking-tight">Bizavo</p>
+          <p className="text-[8px] font-semibold tracking-[0.2em] text-blue-200/80">ONE CONNECTED SYSTEM</p>
         </div>
       </div>
-      <div className="mx-4 mt-5 rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="mx-3 mt-4 rounded-xl border border-white/10 bg-white/[0.055] p-3.5">
         <p className="truncate text-sm font-semibold">{organizationName}</p>
-        <p className="mt-0.5 text-xs text-blue-200">{enumLabel(role)}</p>
+        <p className="mt-1 text-[11px] text-slate-300">{enumLabel(role)} workspace</p>
       </div>
-      <nav className="scrollbar-subtle mt-4 flex-1 space-y-1 overflow-y-auto px-3">
-        {navItems
-          .filter((item) => can(role, item.permission) && (!item.module || enabledModules.includes(item.module)))
-          .map((item) => {
-            const active = item.href === "/app" ? pathname === "/app" : pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-blue-100 transition",
-                  active ? "bg-white text-[#071a5c]" : "hover:bg-white/10 hover:text-white"
-                )}
-              >
-                <Icon className="h-[18px] w-[18px]" />
-                {item.label}
-              </Link>
-            );
-          })}
+      <nav className="scrollbar-subtle mt-3 flex-1 space-y-5 overflow-y-auto px-3 pb-5">
+        {appNavigation.map((section) => {
+          const items = section.items.filter((item) => can(role, item.permission) && (!item.module || enabledModules.includes(item.module)));
+          if (!items.length) return null;
+          return <div key={section.label}>
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{section.label}</p>
+            <div className="space-y-0.5">{items.map((item) => {
+              const active = item.href === "/app" ? pathname === "/app" : pathname.startsWith(item.href);
+              const Icon = item.icon;
+              return <Link key={item.href} href={item.href} className={cn("group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-slate-300 transition", active ? "bg-white text-[#111c35] shadow-sm" : "hover:bg-white/[0.07] hover:text-white")}><Icon className={cn("h-[17px] w-[17px]", active ? "text-blue-600" : "text-slate-400 group-hover:text-slate-200")} />{item.label}</Link>;
+            })}</div>
+          </div>;
+        })}
       </nav>
-      <div className="border-t border-white/10 p-4">
-        <div className="flex items-center gap-3 rounded-lg bg-white/5 p-3">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-cyan-300/20">
-            <BriefcaseBusiness className="h-4 w-4 text-cyan-200" />
-          </div>
+      <div className="border-t border-white/10 p-3">
+        <div className="flex items-center gap-3 rounded-xl bg-white/[0.055] p-3">
+          <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-400/15"><Sparkles className="h-4 w-4 text-blue-200" /></div>
           <div>
-            <p className="text-xs font-semibold">Construction pack</p>
-            <p className="text-[11px] text-blue-200">Phase 1 · Active</p>
+            <p className="text-xs font-semibold">Construction OS</p>
+            <p className="text-[10px] text-slate-400">All systems connected</p>
           </div>
         </div>
       </div>

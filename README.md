@@ -1,6 +1,6 @@
 # Bizavo Construction OS
 
-Bizavo is a multi-tenant business operating system. This repository contains the construction industry pack: project delivery, contracts, procurement, Zoho-inspired inventory control, subcontractors, workforce, payroll, finance and an editable public company page.
+Bizavo is a multi-tenant business operating system. This repository contains the construction industry pack: project delivery, contracts, procurement, Zoho-inspired inventory control, subcontractors, workforce, payroll, finance, business documents and an editable public company page.
 
 The product is intentionally built around connected transactions. A purchase order can be approved, received into a site store, issued to a project and reflected in both inventory valuation and project profitability without re-entering the same cost.
 
@@ -80,6 +80,18 @@ The product is intentionally built around connected transactions. A purchase ord
 - Organization P&L and balance sheet with a live balance check
 - Live dashboard metrics; no hardcoded operational totals
 
+### Documents and customer delivery
+
+- Unified receipt, quotation and proforma-invoice register
+- Itemized document composer with per-line tax and project/client prefill
+- Automatic payment receipt whenever Finance records a client collection
+- Professional PDF generation and secure 30-day customer links
+- Authenticated PDF download for internal users
+- Resend email delivery and WhatsApp Business Cloud API template delivery when configured
+- Honest device-share fallback when a provider is not configured
+- Delivery status, provider reference, failure reason and expiry audit history
+- Payment-linked receipts cannot be deleted or casually voided
+
 ### Public page and leads
 
 - One editable public page per organization
@@ -156,6 +168,12 @@ Set the environment variables:
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only key for signed project-document operations |
 | `SUPABASE_STORAGE_BUCKET` | Defaults to `project-documents` |
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated bootstrap login emails allowed into `/control`; never use the public demo account |
+| `RESEND_API_KEY` | Optional Resend API key for automatic document emails |
+| `BIZAVO_EMAIL_FROM` | Verified sender identity used by Resend |
+| `WHATSAPP_ACCESS_TOKEN` | Optional Meta WhatsApp Business Cloud API token |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta phone-number ID used to send document notifications |
+| `WHATSAPP_DOCUMENT_TEMPLATE` | Approved WhatsApp template with recipient, type, number and URL body variables |
+| `WHATSAPP_TEMPLATE_LANGUAGE` | Approved template language code; defaults to `en` |
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` through a `NEXT_PUBLIC_` variable.
 
@@ -220,4 +238,5 @@ npm run build
 - Tenant roles and global platform roles are separate; a customer Owner does not receive `/control` access.
 - The public demo credential is never seeded as a platform administrator.
 - Workspace suspension and plan module restrictions are enforced server-side, including direct document downloads.
+- Public document URLs store only SHA-256 token hashes, expire after 30 days, are no-index, and stop working when a document is voided or an organization is suspended.
 - Database RLS protects tenant-owned tables from direct Supabase API access. Prisma uses the trusted server connection and repeats tenant authorization in the application layer.

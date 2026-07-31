@@ -90,6 +90,19 @@ Payroll deductions remain in payroll payable until statutory remittance. PF, ESI
 
 Use **Finance → Expenses** only for costs not already created through goods receipt, material consumption, subcontractor billing or payroll. This prevents double-counting.
 
+### Receipts and customer documents
+
+1. A bank-confirmed client payment automatically creates an immutable payment receipt.
+2. Finance can download it from **Finance → Payments** or manage it under **Documents**.
+3. Quotes, sales receipts and proforma invoices are created from **Documents → Create** and can be linked to a project/client.
+4. Email and WhatsApp delivery always creates an audit row before calling the provider.
+5. If a provider is not configured, Bizavo prepares a secure 30-day link and opens the user's email or WhatsApp app; it does not mark the message as automatically sent.
+6. Configure Resend with a verified sender domain for automatic email delivery.
+7. Configure Meta WhatsApp Business Cloud API with an approved `bizavo_document_ready` template containing four body variables in this order: recipient name, document type, document number and secure URL.
+8. Never paste provider tokens into organization notes or GitHub. Store them only in Vercel environment variables.
+
+Payment receipts remain tied to their accounting source and cannot be voided from the document screen. Financial corrections require a controlled reversal workflow rather than deleting evidence.
+
 ## Daily, weekly and monthly controls
 
 ### Daily

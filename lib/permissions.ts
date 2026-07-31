@@ -15,6 +15,8 @@ export type Permission =
   | "hr:manage"
   | "finance:view"
   | "finance:manage"
+  | "documents:view"
+  | "documents:manage"
   | "landing:manage"
   | "members:manage"
   | "subscription:view"
@@ -35,6 +37,8 @@ const all: Permission[] = [
   "hr:manage",
   "finance:view",
   "finance:manage",
+  "documents:view",
+  "documents:manage",
   "landing:manage",
   "members:manage",
   "subscription:view",
@@ -53,7 +57,8 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "inventory:view",
     "subcontractors:view",
     "subcontractors:manage",
-    "finance:view"
+    "finance:view",
+    "documents:view"
   ],
   SITE_ENGINEER: [
     "dashboard:view",
@@ -74,7 +79,8 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "inventory:view",
     "inventory:manage",
     "subcontractors:view",
-    "finance:view"
+    "finance:view",
+    "documents:view"
   ],
   HR: ["dashboard:view", "projects:view", "hr:view", "hr:manage"],
   ACCOUNTANT: [
@@ -85,6 +91,8 @@ export const rolePermissions: Record<OrgRole, Permission[]> = {
     "subcontractors:view",
     "finance:view",
     "finance:manage",
+    "documents:view",
+    "documents:manage",
     "subscription:view"
   ],
   VIEWER: [
